@@ -4,6 +4,7 @@
 #include <DHT.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 // --- SECRET CONFIGURATION ---
 // Create a secrets.h file with your credentials (see secrets.h.example)
@@ -54,7 +55,9 @@ void connectToWiFi() {
   Serial.println(WiFi.localIP());
 }
 
-// Use WiFiClientSecure for HTTPS (Vercel requires TLS)
+void sendData(float t, float h, int light, int motion) {
+  if (WiFi.status() == WL_CONNECTED) {
+    // Use WiFiClientSecure for HTTPS (Vercel requires TLS)
     WiFiClientSecure client;
     client.setInsecure(); // Skip certificate validation for simplicity
     
