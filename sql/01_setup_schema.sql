@@ -43,6 +43,12 @@ create index if not exists idx_sensor_readings_humidity_time
 on sensor_readings (created_at, humidity) 
 where humidity is not null;
 
+-- Covering index for ultra-fast Heatmap & Stats generation (Index Only Scan)
+-- This allows calculating Light/Motion stats without reading the main table heap.
+create index if not exists idx_sensor_readings_covering_stats
+on sensor_readings (created_at desc)
+include (light, motion);
+
 -- ============================================================================
 -- 3. SECURITY POLICIES (RLS)
 -- ============================================================================
@@ -265,3 +271,31 @@ returns table (
      or prev_light is null -- Always include the starting point
   order by created_at asc;
 $$;
+
+-- ============================================================================
+-- 12. HEATMAP DATA FUNCTION
+-- ============================================================================
+-- Aggregates data into fixed time buckets with average intensity
+-- Perfect for "GitHub-style" contribution graphs but for sensor intensity
+
+create or replace function get_heatmap_data(
+  bucket_width_seconds int,
+  time_range interval default interval '24 hours'
+)
+returns table (
+  bucket timestamp with time zone,
+  avg_light numeric,
+  avg_motion numeric,
+  reading_count bigint
+) language sql stable as $$
+  select 
+    to_timestamp(floor(extract(epoch from created_at) / bucket_width_seconds) * bucket_width_seconds) as bucket,
+    round(avg(light), 2) as avg_light,
+    round(avg(motion), 2) as avg_motion,
+    count(*) as reading_count
+  from sensor_readings
+  where created_at > (now() - time_range)
+  group by bucket
+  order by bucket desc;
+$$;
+

@@ -200,8 +200,8 @@ bool sendToAPI(float temperature, float humidity, int light, bool motion) {
   jsonData += "\"temperature\":" + String(temperature, 1) + ",";
   jsonData += "\"humidity\":" + String(humidity, 1) + ",";
   jsonData += "\"light\":" + String(light) + ",";
-  jsonData += "\"motion\":" + String(motion ? 1 : 0) + ",";
-  jsonData += "\"timestamp\":" + String((unsigned long)now);
+  jsonData += "\"motion\":" + String(motion ? 1 : 0);
+  // jsonData += "\"timestamp\":" + String((unsigned long)now); // Let server handle timestamp
   jsonData += "}";
   
   Serial.print("JSON Data: ");

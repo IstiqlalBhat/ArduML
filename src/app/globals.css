@@ -19,76 +19,282 @@
 }
 
 :root {
-  /* Neobrutalism Variables */
-  --background: #fdba74;
-  /* Orange 300 - Warm/Raw base, or could be white */
-  --background: #fdfdfd;
-  --foreground: #09090b;
+  /* Dark Glassmorphism Theme */
+  --background: #0a0a0b;
+  --foreground: #fafafa;
 
-  --primary: #FF6B6B;
-  /* Vibrant Red */
-  --primary-foreground: #000000;
+  --primary: #10b981;
+  --primary-foreground: #ffffff;
 
-  --secondary: #4ECDC4;
-  /* Teal */
-  --secondary-foreground: #000000;
+  --secondary: #06b6d4;
+  --secondary-foreground: #ffffff;
 
-  --muted: #e4e4e7;
-  --muted-foreground: #52525b;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
 
-  --card: #ffffff;
-  --card-foreground: #000000;
+  --card: rgba(24, 24, 27, 0.6);
+  --card-foreground: #fafafa;
 
-  --border: #000000;
+  --border: rgba(63, 63, 70, 0.5);
 
-  --radius: 0px;
-  /* Sharp corners */
+  --radius: 16px;
+
+  /* Sensor colors */
+  --temperature: #f97316;
+  --humidity: #06b6d4;
+  --light: #eab308;
+  --motion: #22c55e;
+
+  /* Gradient backgrounds */
+  --gradient-dark: linear-gradient(135deg, #0a0a0b 0%, #18181b 50%, #0a0a0b 100%);
+  --gradient-glow: radial-gradient(ellipse at 50% 0%, rgba(16, 185, 129, 0.1) 0%, transparent 50%);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
+  background: var(--gradient-dark);
   color: var(--foreground);
-  font-family: var(--font-mono), monospace;
-  /* Mono font fits brutalism well */
+  font-family: var(--font-sans), system-ui, sans-serif;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
-/* Neobrutalist Utilities */
-.neo-border {
-  border: 3px solid var(--border);
+/* Ambient background glow */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60vh;
+  background: var(--gradient-glow);
+  pointer-events: none;
+  z-index: 0;
 }
 
-.neo-shadow {
-  box-shadow: 5px 5px 0px 0px rgba(0, 0, 0, 1);
+/* Glass card effect */
+.glass-card {
+  background: rgba(24, 24, 27, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  border-radius: var(--radius);
 }
 
-.neo-shadow-sm {
-  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 1);
+.glass-card-elevated {
+  background: rgba(24, 24, 27, 0.8);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(63, 63, 70, 0.6);
+  border-radius: var(--radius);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
 }
 
-.neo-shadow-lg {
-  box-shadow: 8px 8px 0px 0px rgba(0, 0, 0, 1);
+/* Glow effects */
+.glow-emerald {
+  box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
 }
 
-.neo-card {
-  background: var(--card);
-  border: 3px solid var(--border);
-  box-shadow: 5px 5px 0px 0px rgba(0, 0, 0, 1);
-  transition: all 0.1s ease-in-out;
+.glow-orange {
+  box-shadow: 0 0 40px rgba(249, 115, 22, 0.15);
 }
 
-.neo-card:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 7px 7px 0px 0px rgba(0, 0, 0, 1);
+.glow-cyan {
+  box-shadow: 0 0 40px rgba(6, 182, 212, 0.15);
 }
 
-.neo-card:active {
-  transform: translate(2px, 2px);
-  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 1);
+.glow-yellow {
+  box-shadow: 0 0 40px rgba(234, 179, 8, 0.15);
 }
 
-.neo-header {
-  background: #C4B5FD;
-  /* Soft purple */
-  border-bottom: 3px solid #000;
+/* Text gradients */
+.text-gradient-emerald {
+  background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-orange {
+  background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-cyan {
+  background: linear-gradient(135deg, #06b6d4 0%, #22d3ee 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-yellow {
+  background: linear-gradient(135deg, #eab308 0%, #facc15 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animated gradient border */
+.gradient-border {
+  position: relative;
+  background: rgba(24, 24, 27, 0.8);
+  border-radius: var(--radius);
+}
+
+.gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: calc(var(--radius) + 1px);
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.5) 0%,
+    rgba(6, 182, 212, 0.5) 50%,
+    rgba(249, 115, 22, 0.5) 100%
+  );
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  pointer-events: none;
+}
+
+/* Pulse animation */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Shimmer loading effect */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Chart container styles */
+.chart-container {
+  position: relative;
+}
+
+.chart-container::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to top, rgba(10, 10, 11, 0.8), transparent);
+  pointer-events: none;
+}
+
+/* Hover lift effect */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* Focus visible styles */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Selection styles */
+::selection {
+  background: rgba(16, 185, 129, 0.3);
+  color: #fff;
+}
+
+/* ApexCharts customization */
+.apexcharts-tooltip {
+  background: rgba(24, 24, 27, 0.95) !important;
+  border: 1px solid rgba(63, 63, 70, 0.5) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+}
+
+.apexcharts-tooltip-title {
+  background: rgba(39, 39, 42, 0.8) !important;
+  border-bottom: 1px solid rgba(63, 63, 70, 0.5) !important;
+}
+
+.apexcharts-xaxistooltip,
+.apexcharts-yaxistooltip {
+  background: rgba(24, 24, 27, 0.95) !important;
+  border: 1px solid rgba(63, 63, 70, 0.5) !important;
+  border-radius: 6px !important;
+}
+
+.apexcharts-menu {
+  background: rgba(24, 24, 27, 0.95) !important;
+  border: 1px solid rgba(63, 63, 70, 0.5) !important;
+}
+
+.apexcharts-menu-item:hover {
+  background: rgba(63, 63, 70, 0.5) !important;
 }
