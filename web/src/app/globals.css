@@ -1,0 +1,94 @@
+/* src/app/globals.css */
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  /* Neobrutalism Variables */
+  --background: #fdba74;
+  /* Orange 300 - Warm/Raw base, or could be white */
+  --background: #fdfdfd;
+  --foreground: #09090b;
+
+  --primary: #FF6B6B;
+  /* Vibrant Red */
+  --primary-foreground: #000000;
+
+  --secondary: #4ECDC4;
+  /* Teal */
+  --secondary-foreground: #000000;
+
+  --muted: #e4e4e7;
+  --muted-foreground: #52525b;
+
+  --card: #ffffff;
+  --card-foreground: #000000;
+
+  --border: #000000;
+
+  --radius: 0px;
+  /* Sharp corners */
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono), monospace;
+  /* Mono font fits brutalism well */
+  min-height: 100vh;
+}
+
+/* Neobrutalist Utilities */
+.neo-border {
+  border: 3px solid var(--border);
+}
+
+.neo-shadow {
+  box-shadow: 5px 5px 0px 0px rgba(0, 0, 0, 1);
+}
+
+.neo-shadow-sm {
+  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 1);
+}
+
+.neo-shadow-lg {
+  box-shadow: 8px 8px 0px 0px rgba(0, 0, 0, 1);
+}
+
+.neo-card {
+  background: var(--card);
+  border: 3px solid var(--border);
+  box-shadow: 5px 5px 0px 0px rgba(0, 0, 0, 1);
+  transition: all 0.1s ease-in-out;
+}
+
+.neo-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 7px 7px 0px 0px rgba(0, 0, 0, 1);
+}
+
+.neo-card:active {
+  transform: translate(2px, 2px);
+  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 1);
+}
+
+.neo-header {
+  background: #C4B5FD;
+  /* Soft purple */
+  border-bottom: 3px solid #000;
+}
