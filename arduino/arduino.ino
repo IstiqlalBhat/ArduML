@@ -7,8 +7,7 @@
 #include <WiFiClientSecure.h>
 
 // --- SECRET CONFIGURATION ---
-// Create a secrets.h file with your credentials (see secrets.h.example)
-#include "secrets.h" 
+#include "secrets.h"
 
 // --- HARDWARE CONFIGURATION ---
 #define SCREEN_WIDTH 128
@@ -20,115 +19,314 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-#define LDR_PIN 34    // Light Sensor
+// CORRECTED: Digital LDR module uses digital output
+#define LDR_PIN 34    // Digital output from LDR module
 #define PIR_PIN 13    // Motion Sensor
 
+// Timing variables
 unsigned long lastUpdate = 0;
-const unsigned long UPDATE_INTERVAL = 2000; // 2 seconds
+const unsigned long UPDATE_INTERVAL = 3000; // 3 seconds
+const unsigned long WIFI_TIMEOUT = 15000; // 15 seconds timeout
+
+// Status flags
+bool wifiConnected = false;
+bool lastSendSuccess = false;
 
 void setup() {
   Serial.begin(115200);
+  delay(1000); // Give serial monitor time to connect
+  
+  Serial.println("\n\n========================");
+  Serial.println("ESP32 Sensor Node v2.0");
+  Serial.println("========================");
+  
+  // Initialize sensors
   dht.begin();
-  pinMode(LDR_PIN, INPUT);
+  pinMode(LDR_PIN, INPUT_PULLUP); // Digital input with pull-up
   pinMode(PIR_PIN, INPUT);
-
+  
+  // Initialize OLED
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("OLED Failed"));
-    for(;;); 
+    Serial.println("OLED initialization failed!");
+    Serial.println("Check I2C connections:");
+    Serial.println("- SDA -> GPIO 21");
+    Serial.println("- SCL -> GPIO 22");
+    Serial.println("- VCC -> 3.3V");
+    Serial.println("- GND -> GND");
+    while(1); // Halt
   }
-
+  
+  Serial.println("OLED initialized successfully");
+  
+  // Display startup screen
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0,0);
+  display.println("Starting up...");
+  display.println("Sensors: OK");
+  display.println("OLED: OK");
+  display.display();
+  delay(2000);
+  
+  // Connect to WiFi
   connectToWiFi();
+  
+  // Test sensor readings
+  Serial.println("\nTesting sensors...");
+  testSensors();
+}
+
+void testSensors() {
+  Serial.println("Sensor Test Results:");
+  
+  // Test LDR
+  int ldrTest = digitalRead(LDR_PIN);
+  Serial.print("LDR (Pin 34): ");
+  Serial.println(ldrTest == HIGH ? "HIGH (DARK)" : "LOW (BRIGHT)");
+  
+  // Test PIR
+  int pirTest = digitalRead(PIR_PIN);
+  Serial.print("PIR (Pin 13): ");
+  Serial.println(pirTest == HIGH ? "HIGH (Motion)" : "LOW (No Motion)");
+  
+  // Test DHT
+  float testTemp = dht.readTemperature();
+  float testHumid = dht.readHumidity();
+  if (isnan(testTemp) || isnan(testHumid)) {
+    Serial.println("DHT: FAILED - Check wiring!");
+    Serial.println("DHT11 Wiring:");
+    Serial.println("- Pin 1 -> 3.3V");
+    Serial.println("- Pin 2 -> GPIO 4");
+    Serial.println("- Pin 3 -> NC");
+    Serial.println("- Pin 4 -> GND");
+    Serial.println("(Add 10K resistor between Pin 1 and 2)");
+  } else {
+    Serial.print("DHT: OK - Temp=");
+    Serial.print(testTemp);
+    Serial.print("C, Humid=");
+    Serial.print(testHumid);
+    Serial.println("%");
+  }
+  Serial.println("======================");
 }
 
 void connectToWiFi() {
   display.clearDisplay();
   display.setCursor(0,0);
-  display.println("Connecting WiFi...");
+  display.println("WiFi: Connecting");
+  display.print("SSID: ");
+  display.println(WIFI_SSID);
   display.display();
   
+  Serial.print("\nConnecting to WiFi: ");
+  Serial.println(WIFI_SSID);
+  
+  WiFi.disconnect(true);
+  delay(1000);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  
+  unsigned long startTime = millis();
+  int dots = 0;
+  
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
+    
+    // Update display with progress dots
+    display.setCursor(0, 24);
+    for (int i = 0; i < dots; i++) display.print(".");
+    display.print(".");
+    display.display();
+    dots = (dots + 1) % 4;
+    
+    if (millis() - startTime > WIFI_TIMEOUT) {
+      display.clearDisplay();
+      display.setCursor(0,0);
+      display.println("WiFi: FAILED!");
+      display.println("Check:");
+      display.println("1. SSID/Password");
+      display.println("2. Router");
+      display.display();
+      Serial.println("\nWiFi connection timeout!");
+      wifiConnected = false;
+      return;
+    }
   }
-  Serial.println("\nWiFi Connected!");
+  
+  wifiConnected = true;
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("WiFi: CONNECTED");
+  display.print("IP: ");
+  display.println(WiFi.localIP());
+  display.display();
+  
+  Serial.println("\nWiFi connected!");
+  Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
+  Serial.print("RSSI: ");
+  Serial.println(WiFi.RSSI());
+  
+  delay(2000);
 }
 
-void sendData(float t, float h, int light, int motion) {
-  if (WiFi.status() == WL_CONNECTED) {
-    // Use WiFiClientSecure for HTTPS (Vercel requires TLS)
-    WiFiClientSecure client;
-    client.setInsecure(); // Skip certificate validation for simplicity
-    
-    HTTPClient http;
-    // Connect with the secure client
-    if (http.begin(client, API_URL)) { 
-      http.addHeader("Content-Type", "application/json");
-      
-      // Optimized: Send light/motion as integers (1/0) for faster DB queries
-      String json = "{";
-      json += "\"temperature\":" + String(t, 1) + ",";
-      json += "\"humidity\":" + String(h, 1) + ",";
-      json += "\"light\":" + String(light) + ",";
-      json += "\"motion\":" + String(motion);
-      json += "}";
-      
-      Serial.println("Sending data: " + json);
-      int httpResponseCode = http.POST(json);
-      
-      if (httpResponseCode > 0) {
-        Serial.print("HTTP Response code: ");
-        Serial.println(httpResponseCode);
-        String payload = http.getString();
-        Serial.println(payload);
-      } else {
-        Serial.print("Error code: ");
-        Serial.println(httpResponseCode);
-        Serial.print("Error message: ");
-        Serial.println(http.errorToString(httpResponseCode));
-      }
-      http.end();
-    } else {
-      Serial.println("Unable to connect to API URL");
-    }
-  } else {
-    Serial.println("WiFi Disconnected");
+bool sendToAPI(float temperature, float humidity, int light, bool motion) {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected. Reconnecting...");
+    connectToWiFi();
+    return false;
   }
+  
+  Serial.println("\nPreparing to send data...");
+  Serial.print("API URL: ");
+  Serial.println(API_URL);
+  
+  // Create JSON payload
+  String jsonData = "{";
+  jsonData += "\"temperature\":" + String(temperature, 1) + ",";
+  jsonData += "\"humidity\":" + String(humidity, 1) + ",";
+  jsonData += "\"light\":" + String(light) + ",";
+  jsonData += "\"motion\":" + String(motion ? 1 : 0);
+  jsonData += "}";
+  
+  Serial.print("JSON Data: ");
+  Serial.println(jsonData);
+  
+  WiFiClientSecure client;
+  HTTPClient http;
+  
+  client.setInsecure(); // Skip SSL certificate verification
+  
+  if (http.begin(client, API_URL)) {
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("User-Agent", "ESP32-Sensor-Node");
+    
+    Serial.println("Sending POST request...");
+    int httpCode = http.POST(jsonData);
+    
+    Serial.print("HTTP Response: ");
+    Serial.println(httpCode);
+    
+    if (httpCode > 0) {
+      String response = http.getString();
+      Serial.print("Server Response: ");
+      Serial.println(response);
+      
+      if (httpCode == 200 || httpCode == 201) {
+        Serial.println("Data sent successfully!");
+        http.end();
+        return true;
+      }
+    } else {
+      Serial.print("POST failed, error: ");
+      Serial.println(http.errorToString(httpCode));
+    }
+    
+    http.end();
+  } else {
+    Serial.println("Failed to connect to API endpoint");
+  }
+  
+  return false;
+}
+
+void updateDisplay(float temp, float humid, bool light, bool motion, bool sendSuccess) {
+  display.clearDisplay();
+  
+  // Line 1: Temperature and Humidity
+  display.setCursor(0, 0);
+  display.print("Temp: ");
+  display.print(temp, 1);
+  display.print("C");
+  
+  display.setCursor(70, 0);
+  display.print("Hum: ");
+  display.print(humid, 1);
+  display.print("%");
+  
+  // Line 2: Light and Motion
+  display.setCursor(0, 10);
+  display.print("Light: ");
+  display.print(light ? "BRIGHT" : "DARK");
+  
+  display.setCursor(70, 10);
+  display.print("Motion: ");
+  display.print(motion ? "YES" : "NO");
+  
+  // Line 3: WiFi and API Status
+  display.setCursor(0, 20);
+  display.print("WiFi: ");
+  display.print(wifiConnected ? "ON" : "OFF");
+  
+  display.setCursor(70, 20);
+  display.print("API: ");
+  display.print(sendSuccess ? "OK" : "FAIL");
+  
+  display.display();
 }
 
 void loop() {
-  if (millis() - lastUpdate >= UPDATE_INTERVAL) {
-    float h = dht.readHumidity();
-    float t = dht.readTemperature();
-    int lightVal = digitalRead(LDR_PIN);
-    int motionVal = digitalRead(PIR_PIN);
+  unsigned long currentMillis = millis();
+  
+  if (currentMillis - lastUpdate >= UPDATE_INTERVAL) {
+    Serial.println("\n--- Reading Sensors ---");
     
-    // Convert to integer values for database (1 = BRIGHT/YES, 0 = DARK/NO)
-    int lightInt = (lightVal == LOW) ? 1 : 0;
-    int motionInt = (motionVal == HIGH) ? 1 : 0;
+    // Read DHT
+    float temperature = dht.readTemperature();
+    float humidity = dht.readHumidity();
     
-    // Keep labels for display
-    String lightLabel = lightInt ? "BRIGHT" : "DARK";
-    String motionLabel = motionInt ? "YES" : "NO";
-
-    if (!isnan(h) && !isnan(t)) {
-      sendData(t, h, lightInt, motionInt);
-      
-      // Update Display
-      display.clearDisplay();
-      display.setCursor(0, 0);
-      display.print("T:"); display.print(t, 1);
-      display.print(" H:"); display.print(h, 1);
-      display.setCursor(0, 10);
-      display.print("L:"); display.print(lightLabel);
-      display.setCursor(64, 10);
-      display.print("M:"); display.print(motionLabel);
-      display.setCursor(0, 20);
-      display.print("Sent -> API");
-      display.display();
+    // Validate DHT readings
+    if (isnan(temperature) || isnan(humidity)) {
+      Serial.println("DHT read failed! Using defaults.");
+      temperature = 25.0;
+      humidity = 50.0;
     }
     
-    lastUpdate = millis();
+    // Read Digital LDR
+    bool lightState = digitalRead(LDR_PIN) == LOW; // Usually LOW when bright
+    // If your module works opposite, change to: digitalRead(LDR_PIN) == HIGH
+    
+    // Read PIR
+    bool motionState = digitalRead(PIR_PIN) == HIGH;
+    
+    // Print sensor values to Serial
+    Serial.print("Temperature: ");
+    Serial.print(temperature);
+    Serial.println("°C");
+    
+    Serial.print("Humidity: ");
+    Serial.print(humidity);
+    Serial.println("%");
+    
+    Serial.print("Light: ");
+    Serial.println(lightState ? "BRIGHT (1)" : "DARK (0)");
+    
+    Serial.print("Motion: ");
+    Serial.println(motionState ? "DETECTED (1)" : "NONE (0)");
+    
+    // Send to API
+    Serial.println("\n--- Sending to API ---");
+    lastSendSuccess = sendToAPI(temperature, humidity, 
+                               lightState ? 1 : 0, 
+                               motionState);
+    
+    // Update display
+    updateDisplay(temperature, humidity, lightState, motionState, lastSendSuccess);
+    
+    lastUpdate = currentMillis;
   }
+  
+  // Check WiFi periodically
+  static unsigned long lastWifiCheck = 0;
+  if (currentMillis - lastWifiCheck >= 30000) { // Check every 30 seconds
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi lost connection!");
+      wifiConnected = false;
+      connectToWiFi();
+    }
+    lastWifiCheck = currentMillis;
+  }
+  
+  delay(100); // Small delay to prevent watchdog reset
 }
