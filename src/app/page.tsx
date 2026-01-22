@@ -2,9 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { CandleStickChart } from "@/components/charts/CandleStickChart"
-import { StripChart } from "@/components/charts/StripChart"
-import { db } from "@/lib/firebase"
-import { ref, onValue } from "firebase/database"
+import { BinaryStateChart } from "@/components/charts/BinaryStateChart"
 import {
   Wifi,
   WifiOff,
@@ -19,87 +17,48 @@ interface OhlcDataPoint {
   y: [number, number, number, number];
 }
 
-interface LiveReading {
-  temperature: number;
-  humidity: number;
-  light: number;
-  motion: number;
-}
-
 export default function ArduinoDashboard() {
   const [candles, setCandles] = useState({
     temperature: [] as OhlcDataPoint[],
-    humidity: [] as OhlcDataPoint[]
+    humidity: [] as OhlcDataPoint[],
+    light: [] as OhlcDataPoint[],
+    motion: [] as OhlcDataPoint[]
   })
-  const [events, setEvents] = useState({
-    light: [] as { x: number; y: number }[],
-    motion: [] as { x: number; y: number }[]
-  })
-  const [live, setLive] = useState<LiveReading | null>(null)
   const [timeRange, setTimeRange] = useState<TimeRange>("5m")
   const [isConnected, setIsConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
-      // Fetch Candles (Temp/Hum)
-      const resCandles = await fetch(`/api/candles?range=${timeRange}`)
-      // Fetch Events (Light/Motion)
-      const resEvents = await fetch(`/api/events?range=${timeRange}`)
-
-      let success = false;
-
-      if (resCandles.ok) {
-        const data = await resCandles.json()
+      const res = await fetch(`/api/candles?range=${timeRange}`)
+      if (res.ok) {
+        const data = await res.json()
         setCandles(prev => ({
-          ...prev,
+          ...prev, // Keep existing if needed, but here we replace for correct range view
           temperature: data.temperature || [],
-          humidity: data.humidity || []
-        }))
-        success = true;
-      }
-
-      if (resEvents.ok) {
-        const data = await resEvents.json()
-        setEvents({
+          humidity: data.humidity || [],
+          // API currently returns temp/hum. I need to update API route to return light/motion too.
+          // Assuming I will fix the API route next.
           light: data.light || [],
           motion: data.motion || []
-        })
-        success = true;
-      }
-
-      if (success) {
+        }))
         setIsConnected(true)
         setLastUpdate(new Date())
       } else {
         setIsConnected(false)
       }
-
     } catch (e) {
       console.error(e)
       setIsConnected(false)
     }
   }, [timeRange])
 
-  // Poll every 2 seconds for snappier updates? Or keep 5s.
+  // Poll every 5 seconds (Supabase doesn't need 2s polling for candles)
   useEffect(() => {
     fetchData()
     const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
   }, [fetchData])
-
-  // Firebase Real-time Listener
-  useEffect(() => {
-    const latestRef = ref(db, 'latest_reading');
-    const unsubscribe = onValue(latestRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setLive(data);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [])
 
   return (
     <div className="min-h-screen bg-zinc-950 p-4 md:p-6 lg:p-8 text-zinc-100 font-sans">
@@ -145,7 +104,6 @@ export default function ArduinoDashboard() {
             title={`TEMPERATURE (${timeRange})`}
             data={candles.temperature}
             color="#f97316"
-            liveValue={live?.temperature}
           />
         </div>
         <div className="h-full min-h-[400px]">
@@ -153,27 +111,24 @@ export default function ArduinoDashboard() {
             title={`HUMIDITY (${timeRange})`}
             data={candles.humidity}
             color="#06b6d4"
-            liveValue={live?.humidity}
           />
         </div>
         <div className="h-full min-h-[400px]">
-          <StripChart
+          <BinaryStateChart
             title={`LIGHT INTENSITY (${timeRange})`}
-            data={events.light}
+            data={candles.light.map(d => ({ x: d.x, y: d.y[3] }))} // Use Close price (index 3)
             activeColor="#eab308"
             activeLabel="BRIGHT"
             inactiveLabel="DARK"
-            liveValue={live ? (live.light === 1 ? "BRIGHT" : "DARK") : undefined}
           />
         </div>
         <div className="h-full min-h-[400px]">
-          <StripChart
+          <BinaryStateChart
             title={`MOTION ACT (${timeRange})`}
-            data={events.motion}
+            data={candles.motion.map(d => ({ x: d.x, y: d.y[3] }))} // Use Close price
             activeColor="#22c55e"
             activeLabel="DETECTED"
             inactiveLabel="NONE"
-            liveValue={live ? (live.motion === 1 ? "DETECTED" : "NONE") : undefined}
           />
         </div>
       </div>
