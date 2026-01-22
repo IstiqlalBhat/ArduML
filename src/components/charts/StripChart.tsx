@@ -11,6 +11,7 @@ interface StripChartProps {
     activeColor: string
     activeLabel: string
     inactiveLabel: string
+    liveValue?: number | string
 }
 
 export function StripChart({
@@ -18,7 +19,8 @@ export function StripChart({
     data,
     activeColor,
     activeLabel,
-    inactiveLabel
+    inactiveLabel,
+    liveValue
 }: StripChartProps) {
 
     const segments = useMemo(() => {
@@ -60,24 +62,32 @@ export function StripChart({
 
     return (
         <Card className="h-full bg-zinc-950 border-zinc-800 flex flex-col">
-            <CardHeader className="pb-2">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
                     {title}
                 </CardTitle>
+                {liveValue !== undefined && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-emerald-500 animate-pulse uppercase tracking-tighter">Live</span>
+                        <span className="text-sm font-mono font-bold text-white leading-none">
+                            {liveValue}
+                        </span>
+                    </div>
+                )}
             </CardHeader>
             <CardContent className="flex-1 flex flex-col justify-center px-4 md:px-6 pb-6">
 
                 {/* Visual Status Indicator */}
                 <div className="mb-4 flex items-center gap-3">
                     <div
-                        className={`w-3 h-3 rounded-full transition-colors duration-500`}
+                        className={`w-3 h-3 rounded-full transition-colors duration-100`}
                         style={{
                             backgroundColor: segments.length > 0 && segments[segments.length - 1].state
                                 ? activeColor
                                 : '#3f3f46' // zinc-700
                         }}
                     />
-                    <span className={`text-2xl font-bold transition-colors duration-500`}
+                    <span className={`text-2xl font-bold transition-colors duration-100`}
                         style={{
                             color: segments.length > 0 && segments[segments.length - 1].state
                                 ? activeColor

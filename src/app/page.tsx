@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { CandleStickChart } from "@/components/charts/CandleStickChart"
 import { StripChart } from "@/components/charts/StripChart"
+import { db } from "@/lib/firebase"
+import { ref, onValue } from "firebase/database"
 import {
   Wifi,
   WifiOff,
@@ -17,6 +19,13 @@ interface OhlcDataPoint {
   y: [number, number, number, number];
 }
 
+interface LiveReading {
+  temperature: number;
+  humidity: number;
+  light: number;
+  motion: number;
+}
+
 export default function ArduinoDashboard() {
   const [candles, setCandles] = useState({
     temperature: [] as OhlcDataPoint[],
@@ -26,6 +35,7 @@ export default function ArduinoDashboard() {
     light: [] as { x: number; y: number }[],
     motion: [] as { x: number; y: number }[]
   })
+  const [live, setLive] = useState<LiveReading | null>(null)
   const [timeRange, setTimeRange] = useState<TimeRange>("5m")
   const [isConnected, setIsConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
@@ -78,6 +88,19 @@ export default function ArduinoDashboard() {
     return () => clearInterval(interval)
   }, [fetchData])
 
+  // Firebase Real-time Listener
+  useEffect(() => {
+    const latestRef = ref(db, 'latest_reading');
+    const unsubscribe = onValue(latestRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setLive(data);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [])
+
   return (
     <div className="min-h-screen bg-zinc-950 p-4 md:p-6 lg:p-8 text-zinc-100 font-sans">
       {/* Header */}
@@ -122,6 +145,7 @@ export default function ArduinoDashboard() {
             title={`TEMPERATURE (${timeRange})`}
             data={candles.temperature}
             color="#f97316"
+            liveValue={live?.temperature}
           />
         </div>
         <div className="h-full min-h-[400px]">
@@ -129,6 +153,7 @@ export default function ArduinoDashboard() {
             title={`HUMIDITY (${timeRange})`}
             data={candles.humidity}
             color="#06b6d4"
+            liveValue={live?.humidity}
           />
         </div>
         <div className="h-full min-h-[400px]">
@@ -138,6 +163,7 @@ export default function ArduinoDashboard() {
             activeColor="#eab308"
             activeLabel="BRIGHT"
             inactiveLabel="DARK"
+            liveValue={live ? (live.light === 1 ? "BRIGHT" : "DARK") : undefined}
           />
         </div>
         <div className="h-full min-h-[400px]">
@@ -147,6 +173,7 @@ export default function ArduinoDashboard() {
             activeColor="#22c55e"
             activeLabel="DETECTED"
             inactiveLabel="NONE"
+            liveValue={live ? (live.motion === 1 ? "DETECTED" : "NONE") : undefined}
           />
         </div>
       </div>

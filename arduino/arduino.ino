@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <WiFiClientSecure.h>
 #include <time.h>
 
 // --- SECRET CONFIGURATION ---
@@ -175,8 +176,6 @@ void connectToWiFi() {
   Serial.println("\nWiFi connected!");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
-  Serial.print("RSSI: ");
-  Serial.println(WiFi.RSSI());
   
   delay(2000);
 }
@@ -246,6 +245,35 @@ bool sendToAPI(float temperature, float humidity, int light, bool motion) {
   return false;
 }
 
+bool pushToFirebase(float temperature, float humidity, int light, bool motion) {
+  if (!wifiConnected || WiFi.status() != WL_CONNECTED) return false;
+  
+  WiFiClientSecure client;
+  HTTPClient http;
+  client.setInsecure();
+
+  // Firebase REST API URL
+  String url = String(FIREBASE_HOST) + "latest_reading.json?auth=" + String(FIREBASE_AUTH);
+  
+  if (http.begin(client, url)) {
+    http.addHeader("Content-Type", "application/json");
+    
+    // Construct lightweight JSON
+    String json = "{";
+    json += "\"temperature\":" + String(temperature, 1) + ",";
+    json += "\"humidity\":" + String(humidity, 1) + ",";
+    json += "\"light\":" + String(light) + ",";
+    json += "\"motion\":" + String(motion ? 1 : 0) + ",";
+    json += "\"timestamp\":" + String((unsigned long)time(nullptr));
+    json += "}";
+
+    int httpCode = http.PUT(json); // Use PUT to overwrite the current state
+    http.end();
+    return (httpCode == 200);
+  }
+  return false;
+}
+
 void updateDisplay(float temp, float humid, bool light, bool motion, bool sendSuccess) {
   display.clearDisplay();
   
@@ -284,64 +312,51 @@ void updateDisplay(float temp, float humid, bool light, bool motion, bool sendSu
 void loop() {
   unsigned long currentMillis = millis();
   
+  // 1. FAST SENSORS: Read digital pins every loop for "instant" detection
+  bool lightState = digitalRead(LDR_PIN) == LOW; // LOW when bright
+  bool motionState = digitalRead(PIR_PIN) == HIGH; // HIGH when motion
+  
+  // 2. SLOW SENSORS: Read DHT only every 2 seconds
+  static unsigned long lastDhtRead = 0;
+  static float temperature = 25.0;
+  static float humidity = 50.0;
+  if (currentMillis - lastDhtRead >= 2000) {
+      float t = dht.readTemperature();
+      float h = dht.readHumidity();
+      if (!isnan(t) && !isnan(h)) {
+          temperature = t;
+          humidity = h;
+      }
+      lastDhtRead = currentMillis;
+  }
+
+  // 3. LOW LATENCY FIREBASE: Push every 500ms for "instantaneous" feel
+  static unsigned long lastFirebasePush = 0;
+  if (currentMillis - lastFirebasePush >= 500) {
+      pushToFirebase(temperature, humidity, lightState ? 1 : 0, motionState);
+      lastFirebasePush = currentMillis;
+  }
+
+  // 4. SUPABASE API: Send every 3 seconds
   if (currentMillis - lastUpdate >= UPDATE_INTERVAL) {
-    Serial.println("\n--- Reading Sensors ---");
+    Serial.println("\n--- Sending to Supabase ---");
+    lastSendSuccess = sendToAPI(temperature, humidity, lightState ? 1 : 0, motionState);
     
-    // Read DHT
-    float temperature = dht.readTemperature();
-    float humidity = dht.readHumidity();
-    
-    // Validate DHT readings
-    if (isnan(temperature) || isnan(humidity)) {
-      Serial.println("DHT read failed! Using defaults.");
-      temperature = 25.0;
-      humidity = 50.0;
-    }
-    
-    // Read Digital LDR
-    bool lightState = digitalRead(LDR_PIN) == LOW; // Usually LOW when bright
-    // If your module works opposite, change to: digitalRead(LDR_PIN) == HIGH
-    
-    // Read PIR
-    bool motionState = digitalRead(PIR_PIN) == HIGH;
-    
-    // Print sensor values to Serial
-    Serial.print("Temperature: ");
-    Serial.print(temperature);
-    Serial.println("°C");
-    
-    Serial.print("Humidity: ");
-    Serial.print(humidity);
-    Serial.println("%");
-    
-    Serial.print("Light: ");
-    Serial.println(lightState ? "BRIGHT (1)" : "DARK (0)");
-    
-    Serial.print("Motion: ");
-    Serial.println(motionState ? "DETECTED (1)" : "NONE (0)");
-    
-    // Send to API
-    Serial.println("\n--- Sending to API ---");
-    lastSendSuccess = sendToAPI(temperature, humidity, 
-                               lightState ? 1 : 0, 
-                               motionState);
-    
-    // Update display
+    // Update local OLED display
     updateDisplay(temperature, humidity, lightState, motionState, lastSendSuccess);
     
     lastUpdate = currentMillis;
   }
   
-  // Check WiFi periodically
+  // 5. PERIODIC WiFi CHECK
   static unsigned long lastWifiCheck = 0;
-  if (currentMillis - lastWifiCheck >= 30000) { // Check every 30 seconds
+  if (currentMillis - lastWifiCheck >= 30000) {
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("WiFi lost connection!");
       wifiConnected = false;
       connectToWiFi();
     }
     lastWifiCheck = currentMillis;
   }
   
-  delay(100); // Small delay to prevent watchdog reset
+  delay(50); // Reduced delay for faster loop cycles (20Hz)
 }

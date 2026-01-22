@@ -16,9 +16,10 @@ interface CandleStickChartProps {
     data: OhlcDataPoint[]
     color?: string
     height?: number
+    liveValue?: number | string
 }
 
-export function CandleStickChart({ title, data, color = "#00E396", height = 350 }: CandleStickChartProps) {
+export function CandleStickChart({ title, data, color = "#00E396", height = 350, liveValue }: CandleStickChartProps) {
     const series = [{
         data: data
     }]
@@ -49,15 +50,8 @@ export function CandleStickChart({ title, data, color = "#00E396", height = 350 
             }
         },
         title: {
-            text: title,
-            align: 'left',
-            style: {
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#e4e4e7', // zinc-200
-                fontFamily: 'inherit'
-            }
-        },
+            show: false
+        } as any,
         xaxis: {
             type: 'datetime',
             tooltip: {
@@ -134,8 +128,21 @@ export function CandleStickChart({ title, data, color = "#00E396", height = 350 
     }
 
     return (
-        <Card className="h-full bg-zinc-950 border-zinc-800">
-            <CardContent className="p-4 h-full">
+        <Card className="h-full bg-zinc-950 border-zinc-800 flex flex-col">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
+                    {title}
+                </CardTitle>
+                {liveValue !== undefined && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-emerald-500 animate-pulse uppercase tracking-tighter">Live</span>
+                        <span className="text-sm font-mono font-bold text-white leading-none">
+                            {typeof liveValue === 'number' ? liveValue.toFixed(1) : liveValue}
+                        </span>
+                    </div>
+                )}
+            </CardHeader>
+            <CardContent className="p-4 flex-1">
                 <Chart options={options} series={series} type="candlestick" height="100%" />
             </CardContent>
         </Card>
