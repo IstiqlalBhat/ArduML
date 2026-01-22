@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { CandleStickChart } from "@/components/charts/CandleStickChart"
+import { StripChart } from "@/components/charts/StripChart"
 import {
   Wifi,
   WifiOff,
@@ -9,7 +10,7 @@ import {
   Database
 } from "lucide-react"
 
-type TimeRange = "1H" | "1D" | "1W" | "1M"
+type TimeRange = "30s" | "1m" | "5m" | "15m" | "1h" | "4h" | "1d"
 
 interface OhlcDataPoint {
   x: number;
@@ -23,7 +24,7 @@ export default function ArduinoDashboard() {
     light: [] as OhlcDataPoint[],
     motion: [] as OhlcDataPoint[]
   })
-  const [timeRange, setTimeRange] = useState<TimeRange>("1H")
+  const [timeRange, setTimeRange] = useState<TimeRange>("5m")
   const [isConnected, setIsConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
@@ -80,13 +81,13 @@ export default function ArduinoDashboard() {
 
         <div className="flex items-center gap-6">
           <div className="flex bg-zinc-900 rounded-md p-1 border border-zinc-800">
-            {(["1H", "1D", "1W", "1M"] as TimeRange[]).map((range) => (
+            {((["30s", "1m", "5m", "15m", "1h", "4h", "1d"]) as TimeRange[]).map((range) => (
               <button
                 key={range}
                 onClick={() => setTimeRange(range)}
-                className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${timeRange === range
-                    ? "bg-zinc-800 text-white shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-300"
+                className={`px-3 py-1 text-xs font-bold transition-colors uppercase ${timeRange === range
+                  ? "text-white bg-zinc-800 rounded shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
                   }`}
               >
                 {range}
@@ -113,17 +114,21 @@ export default function ArduinoDashboard() {
           />
         </div>
         <div className="h-full min-h-[400px]">
-          <CandleStickChart
+          <StripChart
             title={`LIGHT INTENSITY (${timeRange})`}
-            data={candles.light}
-            color="#eab308"
+            data={candles.light.map(d => ({ x: d.x, y: d.y[3] }))} // Use Close price (index 3)
+            activeColor="#eab308"
+            activeLabel="BRIGHT"
+            inactiveLabel="DARK"
           />
         </div>
         <div className="h-full min-h-[400px]">
-          <CandleStickChart
+          <StripChart
             title={`MOTION ACT (${timeRange})`}
-            data={candles.motion}
-            color="#22c55e"
+            data={candles.motion.map(d => ({ x: d.x, y: d.y[3] }))} // Use Close price
+            activeColor="#22c55e"
+            activeLabel="DETECTED"
+            inactiveLabel="NONE"
           />
         </div>
       </div>

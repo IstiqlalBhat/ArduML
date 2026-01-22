@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts"
 import { MetricPoint } from "@/lib/mockData"
+import { smartFormatEst, formatToDateEst } from "@/lib/dateUtils"
 
 interface LiveLineChartProps {
     title: string
@@ -29,6 +30,7 @@ export function LiveLineChart({ title, description, data, color = "#22d3ee" }: L
                             tickLine={false}
                             axisLine={false}
                             minTickGap={30}
+                            tickFormatter={(val) => smartFormatEst(val)}
                         />
                         <YAxis
                             stroke="#52525b"
@@ -48,6 +50,7 @@ export function LiveLineChart({ title, description, data, color = "#22d3ee" }: L
                             }}
                             itemStyle={{ color: color }}
                             cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
+                            labelFormatter={(label) => formatToDateEst(label)}
                         />
                         <Line
                             type="monotone"

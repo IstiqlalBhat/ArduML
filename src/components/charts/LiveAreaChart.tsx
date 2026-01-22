@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts"
 import { MetricPoint } from "@/lib/mockData"
+import { smartFormatEst, formatToDateEst } from "@/lib/dateUtils"
 
 interface LiveAreaChartProps {
     title: string
@@ -36,6 +37,7 @@ export function LiveAreaChart({ title, description, data, color = "#a855f7", yDa
                             tickLine={false}
                             axisLine={false}
                             minTickGap={30}
+                            tickFormatter={(val) => smartFormatEst(val)}
                         />
                         <YAxis
                             stroke="#52525b"
@@ -55,6 +57,7 @@ export function LiveAreaChart({ title, description, data, color = "#a855f7", yDa
                             }}
                             itemStyle={{ color: color }}
                             cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
+                            labelFormatter={(label) => formatToDateEst(label)}
                         />
                         <Area
                             type="monotone"

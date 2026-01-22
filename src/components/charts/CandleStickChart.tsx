@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { formatToDateEst } from "@/lib/dateUtils"
 export interface OhlcDataPoint {
     x: any;
     y: [number, number, number, number];
@@ -28,33 +29,39 @@ export function CandleStickChart({ title, data, color = "#00E396", height = 350 
             height: 350,
             background: 'transparent',
             toolbar: {
-                show: true,
+                show: true, // Re-enabled for functionality
                 tools: {
-                    download: true,
+                    download: false,
                     selection: true,
                     zoom: true,
                     zoomin: true,
                     zoomout: true,
                     pan: true,
+                    reset: true
                 },
+                autoSelected: 'zoom'
             },
             animations: {
-                enabled: false // Disable animation for smoother real-time updates
+                enabled: false
+            },
+            zoom: {
+                enabled: true
             }
         },
         title: {
             text: title,
             align: 'left',
             style: {
-                fontSize: '16px',
-                fontWeight: 'bold',
-                color: '#ffffff'
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#e4e4e7', // zinc-200
+                fontFamily: 'inherit'
             }
         },
         xaxis: {
             type: 'datetime',
             tooltip: {
-                enabled: true
+                enabled: false // Cleaner interaction
             },
             axisBorder: {
                 show: false
@@ -64,8 +71,25 @@ export function CandleStickChart({ title, data, color = "#00E396", height = 350 
             },
             labels: {
                 style: {
-                    colors: '#a1a1aa'
+                    colors: '#71717a', // zinc-500
+                    fontFamily: 'inherit',
+                    fontSize: '11px'
+                },
+                formatter: (val: string) => {
+                    // ApexCharts passes timestamp
+                    return formatToDateEst(val);
                 }
+            },
+            crosshairs: {
+                show: true,
+                width: 1,
+                position: 'back',
+                opacity: 0.9,
+                stroke: {
+                    color: '#3f3f46', // zinc-700
+                    width: 1,
+                    dashArray: 3,
+                },
             }
         },
         yaxis: {
@@ -74,33 +98,37 @@ export function CandleStickChart({ title, data, color = "#00E396", height = 350 
             },
             labels: {
                 style: {
-                    colors: '#a1a1aa'
-                }
+                    colors: '#71717a', // zinc-500
+                    fontFamily: 'inherit',
+                    fontSize: '11px'
+                },
+                formatter: (val) => val.toFixed(1)
             }
         },
         grid: {
-            borderColor: '#333',
-            strokeDashArray: 3,
+            borderColor: '#27272a', // zinc-800
+            strokeDashArray: 0, // Solid lines for premium feel
+            position: 'back',
         },
         plotOptions: {
             candlestick: {
                 colors: {
-                    upward: '#22c55e', // Green forUp
-                    downward: '#ef4444' // Red for Down
+                    upward: '#10b981', // Emerald-500 (Vibrant Green)
+                    downward: '#ef4444' // Red-500 (Vibrant Red)
                 },
                 wick: {
                     useFillColor: true
                 }
             }
         },
-        theme: {
-            mode: 'dark',
-            palette: 'palette1'
-        },
         tooltip: {
             theme: 'dark',
             style: {
-                fontSize: '12px'
+                fontSize: '12px',
+                fontFamily: 'inherit'
+            },
+            x: {
+                formatter: (val) => formatToDateEst(val)
             }
         }
     }
@@ -108,9 +136,7 @@ export function CandleStickChart({ title, data, color = "#00E396", height = 350 
     return (
         <Card className="h-full bg-zinc-950 border-zinc-800">
             <CardContent className="p-4 h-full">
-                {typeof window !== 'undefined' && (
-                    <Chart options={options} series={series} type="candlestick" height="100%" />
-                )}
+                <Chart options={options} series={series} type="candlestick" height="100%" />
             </CardContent>
         </Card>
     )

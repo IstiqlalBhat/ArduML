@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <time.h>
 
 // --- SECRET CONFIGURATION ---
 #include "secrets.h"
@@ -27,6 +28,11 @@ DHT dht(DHTPIN, DHTTYPE);
 unsigned long lastUpdate = 0;
 const unsigned long UPDATE_INTERVAL = 3000; // 3 seconds
 const unsigned long WIFI_TIMEOUT = 15000; // 15 seconds timeout
+
+// NTP Server
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 0;
+const int   daylightOffset_sec = 0;
 
 // Status flags
 bool wifiConnected = false;
@@ -155,6 +161,10 @@ void connectToWiFi() {
   }
   
   wifiConnected = true;
+  
+  // Init and get time
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  
   display.clearDisplay();
   display.setCursor(0,0);
   display.println("WiFi: CONNECTED");
@@ -182,12 +192,17 @@ bool sendToAPI(float temperature, float humidity, int light, bool motion) {
   Serial.print("API URL: ");
   Serial.println(API_URL);
   
+  // Get current timestamp
+  time_t now;
+  time(&now);
+  
   // Create JSON payload
   String jsonData = "{";
   jsonData += "\"temperature\":" + String(temperature, 1) + ",";
   jsonData += "\"humidity\":" + String(humidity, 1) + ",";
   jsonData += "\"light\":" + String(light) + ",";
-  jsonData += "\"motion\":" + String(motion ? 1 : 0);
+  jsonData += "\"motion\":" + String(motion ? 1 : 0) + ",";
+  jsonData += "\"timestamp\":" + String((unsigned long)now);
   jsonData += "}";
   
   Serial.print("JSON Data: ");

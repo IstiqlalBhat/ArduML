@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts"
+import { smartFormatEst, formatToDateEst } from "@/lib/dateUtils"
 
 interface DataPoint {
     time: string;
@@ -88,6 +89,7 @@ export function GlowLineChart({
                             axisLine={true}
                             minTickGap={50}
                             tick={{ fill: '#000000', fontWeight: 'bold', fontFamily: 'monospace' }}
+                            tickFormatter={(val) => smartFormatEst(val)}
                         />
 
                         <YAxis
@@ -116,6 +118,7 @@ export function GlowLineChart({
                             itemStyle={{ color: '#000000', fontWeight: 'bold', fontSize: 14, fontFamily: 'monospace' }}
                             formatter={(value: any) => [`${value?.toFixed(1) || "--"}${unit}`, title]}
                             cursor={{ stroke: '#000000', strokeWidth: 2 }}
+                            labelFormatter={(label) => formatToDateEst(label)}
                         />
 
                         {referenceValue !== undefined && (

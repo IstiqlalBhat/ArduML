@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 export async function POST(request: Request) {
     try {
         const body = await request.json()
-        const { temperature, humidity, light, motion } = body
+        const { temperature, humidity, light, motion, timestamp } = body
 
         // Simple validation
         if (temperature === undefined || humidity === undefined) {
@@ -17,14 +17,23 @@ export async function POST(request: Request) {
         const lightValue = typeof light === 'number' ? light : (light === 'BRIGHT' ? 1 : 0)
         const motionValue = typeof motion === 'number' ? motion : (motion === 'YES' ? 1 : 0)
 
+        // Prepare insert payload
+        const payload: any = {
+            temperature,
+            humidity,
+            light: lightValue,
+            motion: motionValue
+        }
+
+        // If valid timestamp provided (and seemingly valid > year 2000), use it
+        // ESP32 sends seconds, we need to convert to ISO string
+        if (timestamp && typeof timestamp === 'number' && timestamp > 946684800) {
+            payload.created_at = new Date(timestamp * 1000).toISOString()
+        }
+
         const { error } = await supabase
             .from('sensor_readings')
-            .insert({
-                temperature,
-                humidity,
-                light: lightValue,
-                motion: motionValue
-            })
+            .insert(payload)
 
         if (error) {
             console.error('Supabase error:', error)
