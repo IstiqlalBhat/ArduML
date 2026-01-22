@@ -54,23 +54,43 @@ void connectToWiFi() {
   Serial.println(WiFi.localIP());
 }
 
-void sendData(float t, float h, int light, int motion) {
-  if (WiFi.status() == WL_CONNECTED) {
+// Use WiFiClientSecure for HTTPS (Vercel requires TLS)
+    WiFiClientSecure client;
+    client.setInsecure(); // Skip certificate validation for simplicity
+    
     HTTPClient http;
-    http.begin(API_URL);
-    http.addHeader("Content-Type", "application/json");
-    
-    // Optimized: Send light/motion as integers (1/0) for faster DB queries
-    String json = "{";
-    json += "\"temperature\":" + String(t, 1) + ",";
-    json += "\"humidity\":" + String(h, 1) + ",";
-    json += "\"light\":" + String(light) + ",";
-    json += "\"motion\":" + String(motion);
-    json += "}";
-    
-    int httpResponseCode = http.POST(json);
-    Serial.print("HTTP Code: "); Serial.println(httpResponseCode);
-    http.end();
+    // Connect with the secure client
+    if (http.begin(client, API_URL)) { 
+      http.addHeader("Content-Type", "application/json");
+      
+      // Optimized: Send light/motion as integers (1/0) for faster DB queries
+      String json = "{";
+      json += "\"temperature\":" + String(t, 1) + ",";
+      json += "\"humidity\":" + String(h, 1) + ",";
+      json += "\"light\":" + String(light) + ",";
+      json += "\"motion\":" + String(motion);
+      json += "}";
+      
+      Serial.println("Sending data: " + json);
+      int httpResponseCode = http.POST(json);
+      
+      if (httpResponseCode > 0) {
+        Serial.print("HTTP Response code: ");
+        Serial.println(httpResponseCode);
+        String payload = http.getString();
+        Serial.println(payload);
+      } else {
+        Serial.print("Error code: ");
+        Serial.println(httpResponseCode);
+        Serial.print("Error message: ");
+        Serial.println(http.errorToString(httpResponseCode));
+      }
+      http.end();
+    } else {
+      Serial.println("Unable to connect to API URL");
+    }
+  } else {
+    Serial.println("WiFi Disconnected");
   }
 }
 
