@@ -20,9 +20,11 @@ interface OhlcDataPoint {
 export default function ArduinoDashboard() {
   const [candles, setCandles] = useState({
     temperature: [] as OhlcDataPoint[],
-    humidity: [] as OhlcDataPoint[],
-    light: [] as OhlcDataPoint[],
-    motion: [] as OhlcDataPoint[]
+    humidity: [] as OhlcDataPoint[]
+  })
+  const [events, setEvents] = useState({
+    light: [] as { x: number; y: number }[],
+    motion: [] as { x: number; y: number }[]
   })
   const [timeRange, setTimeRange] = useState<TimeRange>("5m")
   const [isConnected, setIsConnected] = useState(false)
@@ -30,30 +32,46 @@ export default function ArduinoDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(`/api/candles?range=${timeRange}`)
-      if (res.ok) {
-        const data = await res.json()
+      // Fetch Candles (Temp/Hum)
+      const resCandles = await fetch(`/api/candles?range=${timeRange}`)
+      // Fetch Events (Light/Motion)
+      const resEvents = await fetch(`/api/events?range=${timeRange}`)
+
+      let success = false;
+
+      if (resCandles.ok) {
+        const data = await resCandles.json()
         setCandles(prev => ({
-          ...prev, // Keep existing if needed, but here we replace for correct range view
+          ...prev,
           temperature: data.temperature || [],
-          humidity: data.humidity || [],
-          // API currently returns temp/hum. I need to update API route to return light/motion too.
-          // Assuming I will fix the API route next.
+          humidity: data.humidity || []
+        }))
+        success = true;
+      }
+
+      if (resEvents.ok) {
+        const data = await resEvents.json()
+        setEvents({
           light: data.light || [],
           motion: data.motion || []
-        }))
+        })
+        success = true;
+      }
+
+      if (success) {
         setIsConnected(true)
         setLastUpdate(new Date())
       } else {
         setIsConnected(false)
       }
+
     } catch (e) {
       console.error(e)
       setIsConnected(false)
     }
   }, [timeRange])
 
-  // Poll every 5 seconds (Supabase doesn't need 2s polling for candles)
+  // Poll every 2 seconds for snappier updates? Or keep 5s.
   useEffect(() => {
     fetchData()
     const interval = setInterval(fetchData, 5000)
@@ -116,7 +134,7 @@ export default function ArduinoDashboard() {
         <div className="h-full min-h-[400px]">
           <StripChart
             title={`LIGHT INTENSITY (${timeRange})`}
-            data={candles.light.map(d => ({ x: d.x, y: d.y[3] }))} // Use Close price (index 3)
+            data={events.light}
             activeColor="#eab308"
             activeLabel="BRIGHT"
             inactiveLabel="DARK"
@@ -125,7 +143,7 @@ export default function ArduinoDashboard() {
         <div className="h-full min-h-[400px]">
           <StripChart
             title={`MOTION ACT (${timeRange})`}
-            data={candles.motion.map(d => ({ x: d.x, y: d.y[3] }))} // Use Close price
+            data={events.motion}
             activeColor="#22c55e"
             activeLabel="DETECTED"
             inactiveLabel="NONE"

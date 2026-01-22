@@ -234,3 +234,34 @@ $$;
 -- Run this after initial data load or large batch inserts
 
 -- ANALYZE sensor_readings;
+
+-- ============================================================================
+-- 11. STATE CHANGE EVENTS FUNCTION (Discrete changes only)
+-- ============================================================================
+-- Returns only rows where Light or Motion STATUS CHANGED.
+-- Perfect for "Strip Charts" to visualize exact timestamps of abrupt changes
+-- without fetching millions of "no change" rows.
+
+create or replace function get_sensor_events(time_range interval default interval '24 hours')
+returns table (
+  created_at timestamp with time zone,
+  light smallint,
+  motion smallint
+) language sql stable as $$
+  with changes as (
+    select 
+      created_at,
+      light,
+      motion,
+      lag(light) over (order by created_at) as prev_light,
+      lag(motion) over (order by created_at) as prev_motion
+    from sensor_readings
+    where created_at > (now() - time_range)
+  )
+  select created_at, light, motion
+  from changes
+  where (light is distinct from prev_light)
+     or (motion is distinct from prev_motion)
+     or prev_light is null -- Always include the starting point
+  order by created_at asc;
+$$;

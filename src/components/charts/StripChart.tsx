@@ -21,30 +21,29 @@ export function StripChart({
     inactiveLabel
 }: StripChartProps) {
 
-    // Process data to find state changes and durations
     const segments = useMemo(() => {
         if (!data || data.length === 0) return []
 
-        const result = []
-        // Sort by time just in case
+        // Sort by time
         const sorted = [...data].sort((a, b) => a.x - b.x)
 
-        // This logic assumes fairly regular intervals. 
-        // We will create blocks.
-        // A block starts at time T with state S. It ends at time T_next.
+        // Define the visible window end time
+        // Use the latest data point OR "now", whichever is later, to ensure the chart looks "live"
+        // If the last event was 1 hour ago, we want to show that state continuing until now.
+        const lastTime = sorted[sorted.length - 1].x
+        const now = Date.now()
+        const effectiveEnd = Math.max(lastTime, now)
 
-        for (let i = 0; i < sorted.length; i++) {
-            const current = sorted[i]
-            const next = sorted[i + 1]
+        // Add a synthetic "now" point if the last point is older than 1 minute
+        const points = [...sorted]
+        if (now - lastTime > 1000) {
+            points.push({ x: effectiveEnd, y: sorted[sorted.length - 1].y })
+        }
 
-            // If there's a next point, this segment lasts until then.
-            // If it's the last point, give it a default duration (e.g., same as previous interval or fixed)
-            // For visualization, we'll just map normalized widths.
-
-            // BETTER VISUALIZATION:
-            // We want to see a timeline.
-            // Let's normalize the entire time range to 0-100%.
-
+        const result = []
+        for (let i = 0; i < points.length; i++) {
+            const current = points[i]
+            // Simply map for now, calculation happens in render
             result.push({
                 start: current.x,
                 state: current.y >= 0.5, // true if active
@@ -55,6 +54,7 @@ export function StripChart({
     }, [data])
 
     const startTime = segments.length > 0 ? segments[0].start : 0
+    // The end time is the start of the LAST segment (which is our synthetic "now" point)
     const endTime = segments.length > 0 ? segments[segments.length - 1].start : 0
     const totalDuration = endTime - startTime
 
