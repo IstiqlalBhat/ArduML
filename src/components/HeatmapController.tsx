@@ -11,23 +11,23 @@ interface HeatmapDataPoint {
     readings: number
 }
 
-interface TimeBox {
-    index: number
-    startTime: Date
-    endTime: Date
+interface TimelineSegment {
+    id: number
+    start: number // timestamp in ms
+    end: number // timestamp in ms
     hasEvent: boolean
     eventCount: number
-    label: string
+    intensity: number
 }
 
 const TIME_RANGES = {
-    '1m': { label: '1 Minute', apiRange: '1m', description: 'Last minute', boxes: 60, boxDuration: 1000 }, // 60s -> 60 boxes (1s)
-    '1h': { label: '1 Hour', apiRange: '1h', description: 'Last hour', boxes: 60, boxDuration: 60000 }, // 60m -> 60 boxes (1m)
-    '6h': { label: '6 Hours', apiRange: '6h', description: 'Last 6 hours', boxes: 6, boxDuration: 3600000 }, // 6h -> 6 boxes (1h)
-    '24h': { label: '24 Hours', apiRange: '24h', description: 'Last 24 hours', boxes: 24, boxDuration: 3600000 }, // 24h -> 24 boxes (1h)
-    '3d': { label: '3 Days', apiRange: '3d', description: 'Last 3 days', boxes: 3, boxDuration: 86400000 }, // 3d -> 3 boxes (1d)
-    '7d': { label: '7 Days', apiRange: '7d', description: 'Last week', boxes: 7, boxDuration: 86400000 }, // 7d -> 7 boxes (1d)
-    '30d': { label: '30 Days', apiRange: '30d', description: 'Last month', boxes: 30, boxDuration: 86400000 }, // 30d -> 30 boxes (1d)
+    '1m': { label: '1 Minute', apiRange: '1m', description: 'Last minute', duration: 60000, tickInterval: 10000 },
+    '1h': { label: '1 Hour', apiRange: '1h', description: 'Last hour', duration: 3600000, tickInterval: 900000 },
+    '6h': { label: '6 Hours', apiRange: '6h', description: 'Last 6 hours', duration: 21600000, tickInterval: 3600000 },
+    '24h': { label: '24 Hours', apiRange: '24h', description: 'Last 24 hours', duration: 86400000, tickInterval: 14400000 },
+    '3d': { label: '3 Days', apiRange: '3d', description: 'Last 3 days', duration: 259200000, tickInterval: 86400000 },
+    '7d': { label: '7 Days', apiRange: '7d', description: 'Last week', duration: 604800000, tickInterval: 86400000 },
+    '30d': { label: '30 Days', apiRange: '30d', description: 'Last month', duration: 2592000000, tickInterval: 604800000 },
 } as const
 
 type TimeRangeKey = keyof typeof TIME_RANGES
@@ -38,7 +38,7 @@ export function HeatmapController() {
     const [motionData, setMotionData] = useState<HeatmapDataPoint[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-    const [hoveredBox, setHoveredBox] = useState<{ sensor: 'light' | 'motion', box: TimeBox } | null>(null)
+    const [hoveredSegment, setHoveredSegment] = useState<{ sensor: 'light' | 'motion', segment: TimelineSegment, x: number } | null>(null)
 
     const { current: liveData, isConnected: isFirebaseConnected } = useFirebaseSensor()
 
@@ -65,131 +65,68 @@ export function HeatmapController() {
         return () => clearInterval(interval)
     }, [fetchData])
 
-    // Process data into time boxes
-    const processToTimeBoxes = useCallback((data: HeatmapDataPoint[]): TimeBox[] => {
+    // Process data into timeline segments
+    const processToSegments = useCallback((data: HeatmapDataPoint[]): TimelineSegment[] => {
         const config = TIME_RANGES[resolution]
-        const boxes: TimeBox[] = []
+        if (!data || data.length === 0) return []
 
         const now = Date.now()
-        // Align start time to the nearest box boundary to match API buckets which are likely aligned
-        // But for simplicity, we keep the rolling window approach: Now - TotalDuration
-        const totalDuration = config.boxes * config.boxDuration
-        const startTime = now - totalDuration
+        // We use the full requested duration. The API returns buckets.
+        // We will map each bucket to a segment.
 
-        // Helper to find data point for a box
-        const findDataInBox = (boxStart: number, boxEnd: number) => {
-            return data.find(p => {
-                const t = p.timestamp * 1000
-                return t >= boxStart && t < boxEnd
-            })
-        }
+        return data.map((point, i) => {
+            const t = point.timestamp * 1000
 
-        let previousValue = data.length > 0 ? (data[0].timestamp * 1000 < startTime ? data[0].value : 0) : 0
-
-        for (let i = 0; i < config.boxes; i++) {
-            const boxStart = startTime + (i * config.boxDuration)
-            const boxEnd = startTime + ((i + 1) * config.boxDuration)
-
-            const point = findDataInBox(boxStart, boxEnd)
+            // Determine activity intensity
             let hasEvent = false
-            let eventCount = 0
+            let intensity = 0
 
-            if (point) {
-                // Determine if this box represents an "event"
-                // For Motion: Any non-zero value implies motion
-                // For Light: Use variance or change from previous
-                if (resolution === '1m') {
-                    // High precision mode
-                    hasEvent = point.value > 0.1
-                } else {
-                    // Aggregated mode
-                    // If value is between 0.1 and 0.9, it implies flipping occurred during this bucket
-                    // OR if value changed significantly from previous bucket
-                    const isSwitching = point.value > 0.1 && point.value < 0.9
-                    const isChanged = Math.abs(point.value - previousValue) > 0.5
-                    hasEvent = isSwitching || isChanged
-                }
-
-                if (hasEvent) {
-                    eventCount = point.readings || 1
-                }
-                previousValue = point.value
-            }
-
-            // Format label
-            let label = ''
-            const date = new Date(boxStart)
             if (resolution === '1m') {
-                label = date.getSeconds() + 's'
-            } else if (resolution === '1h') {
-                label = date.getMinutes() + 'm'
-            } else if (resolution === '6h' || resolution === '24h') {
-                label = date.getHours() + ':00'
+                hasEvent = point.value > 0.1
+                intensity = hasEvent ? 1 : 0
             } else {
-                label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                // For aggregated views, use the value directly as intensity (0 to 1)
+                // If it's motion (0 or 1), average might be 0.5 if invoked half time etc.
+                hasEvent = point.value > 0.05
+                intensity = Math.min(point.value * 1.2, 1) // Boost visibility slightly
             }
 
-            boxes.push({
-                index: i,
-                startTime: new Date(boxStart),
-                endTime: new Date(boxEnd),
+            return {
+                id: i,
+                start: t,
+                end: t + (config.duration / 60), // fallback width, actually API bucket width varies
                 hasEvent,
-                eventCount,
-                label
-            })
-        }
-
-        return boxes
+                eventCount: point.readings || 1,
+                intensity
+            }
+        })
     }, [resolution])
 
-    const lightBoxes = useMemo(() => processToTimeBoxes(lightData), [lightData, processToTimeBoxes])
-    const motionBoxes = useMemo(() => processToTimeBoxes(motionData), [motionData, processToTimeBoxes])
+    const lightSegments = useMemo(() => processToSegments(lightData), [lightData, processToSegments])
+    const motionSegments = useMemo(() => processToSegments(motionData), [motionData, processToSegments])
 
-    // Stats calculation based on new boxes
+    // Stats calculation based on new segments
     const lightStats = useMemo(() => {
-        const boxesWithEvents = lightBoxes.filter(box => box.hasEvent).length
-        return { events: boxesWithEvents, activeBoxes: boxesWithEvents, totalBoxes: lightBoxes.length }
-    }, [lightBoxes])
+        const segmentsWithEvents = lightSegments.filter(s => s.hasEvent).length
+        return { events: segmentsWithEvents, activeSegments: segmentsWithEvents, totalSegments: lightSegments.length }
+    }, [lightSegments])
 
     const motionStats = useMemo(() => {
-        const boxesWithEvents = motionBoxes.filter(box => box.hasEvent).length
-        return { events: boxesWithEvents, activeBoxes: boxesWithEvents, totalBoxes: motionBoxes.length }
-    }, [motionBoxes])
+        const segmentsWithEvents = motionSegments.filter(s => s.hasEvent).length
+        return { events: segmentsWithEvents, activeSegments: segmentsWithEvents, totalSegments: motionSegments.length }
+    }, [motionSegments])
 
     const isLightActive = liveData.light !== null && liveData.light >= 0.5
     const isMotionActive = liveData.motion !== null && liveData.motion >= 0.5
 
-    // Get box style - only show color if there's an event
-    const getBoxStyle = (box: TimeBox, baseColor: string) => {
-        if (!box.hasEvent) {
-            return {
-                backgroundColor: 'rgba(39, 39, 42, 0.3)',
-                border: '1px solid rgba(63, 63, 70, 0.5)'
-            }
-        }
-
-        // Parse hex color
-        const r = parseInt(baseColor.slice(1, 3), 16)
-        const g = parseInt(baseColor.slice(3, 5), 16)
-        const b = parseInt(baseColor.slice(5, 7), 16)
-
-        // Intensity based on event count
-        const alpha = Math.min(0.4 + box.eventCount * 0.2, 1)
-        const glowIntensity = box.eventCount > 1 ? 0.4 : 0.2
-
-        return {
-            backgroundColor: `rgba(${r}, ${g}, ${b}, ${alpha})`,
-            border: `1px solid rgba(${r}, ${g}, ${b}, 0.6)`,
-            boxShadow: `0 0 ${Math.round(glowIntensity * 8)}px rgba(${r}, ${g}, ${b}, ${glowIntensity})`
-        }
-    }
-
-    const renderTimeBoxes = (
-        boxes: TimeBox[],
+    const renderTimeline = (
+        segments: TimelineSegment[],
         sensor: 'light' | 'motion',
         color: string
     ) => {
-        if (boxes.length === 0) {
+        const config = TIME_RANGES[resolution]
+
+        if (segments.length === 0) {
             return (
                 <div className="h-[60px] flex items-center justify-center text-zinc-500 text-sm">
                     {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : 'No data available'}
@@ -197,46 +134,80 @@ export function HeatmapController() {
             )
         }
 
-        const config = TIME_RANGES[resolution]
+        // SVG rendering logic
+        const now = Date.now()
+        const endTime = now
+        const startTime = now - config.duration
+
+        // Calculate bucket width based on resolution
+        let bucketMs = 0
+        switch (resolution) {
+            case '1m': bucketMs = 1000; break;
+            case '1h': bucketMs = 60000; break;
+            case '6h': case '24h': bucketMs = 3600000; break;
+            case '3d': case '7d': case '30d': bucketMs = 86400000; break;
+        }
+
+        // Calculate relative width in percentage
+        const segmentWidthPercent = (bucketMs / config.duration) * 100
 
         return (
-            <div className="w-full overflow-hidden">
-                <div className={`
-                    grid gap-1 w-full
-                    ${config.boxes <= 7 ? 'grid-cols-7' :
-                        config.boxes <= 24 ? 'grid-cols-12 sm:grid-cols-24' :
-                            'grid-cols-[repeat(15,minmax(0,1fr))] sm:grid-cols-[repeat(20,minmax(0,1fr))] md:grid-cols-[repeat(30,minmax(0,1fr))] lg:grid-cols-[repeat(60,minmax(0,1fr))]'
-                    }
-                `}>
-                    {boxes.map((box) => {
-                        const isHovered = hoveredBox?.sensor === sensor && hoveredBox?.box.index === box.index
-                        const showLabel = (
-                            config.boxes <= 7 ||
-                            (config.boxes <= 24 && box.index % 4 === 0) ||
-                            (config.boxes > 24 && box.index % 5 === 0)
-                        )
+            <div className="w-full relative h-[60px] select-none group">
+                {/* Timeline Grid Lines */}
+                <div className="absolute inset-0 flex justify-between pointer-events-none opacity-20">
+                    {[...Array(5)].map((_, i) => (
+                        <div key={i} className="w-px h-full bg-zinc-500" />
+                    ))}
+                </div>
+
+                {/* Barcode SVG */}
+                <div className="absolute top-2 bottom-6 left-0 right-0 flex items-center">
+                    {/* Background Track */}
+                    <div className="absolute inset-0 bg-zinc-800/50 rounded-md" />
+
+                    {segments.map((s) => {
+                        // Calculate position
+                        // s.start is typically older than now.
+                        // x=0 is startTime, x=100% is endTime
+                        const relativeStart = s.start - startTime
+                        const leftPercent = Math.max(0, Math.min(100, (relativeStart / config.duration) * 100))
+
+                        if (leftPercent >= 100 || leftPercent + segmentWidthPercent < 0) return null
+                        if (!s.hasEvent) return null
 
                         return (
-                            <div key={box.index} className="flex flex-col items-center gap-1 min-w-0">
-                                <motion.div
-                                    className={`
-                                        w-full aspect-[2/3] rounded-sm sm:rounded-md cursor-pointer transition-all duration-100 
-                                        ${isHovered ? 'ring-2 ring-white/60 ring-offset-1 ring-offset-zinc-900 z-20 scale-110' : ''}
-                                    `}
-                                    style={getBoxStyle(box, color)}
-                                    onMouseEnter={() => setHoveredBox({ sensor, box })}
-                                    onMouseLeave={() => setHoveredBox(null)}
-                                    whileTap={{ scale: 0.95 }}
-                                />
-                                {showLabel && (
-                                    <span className="hidden sm:block text-[8px] text-zinc-500 font-medium truncate w-full text-center">
-                                        {box.label}
-                                    </span>
-                                )}
-                            </div>
+                            <motion.div
+                                key={s.id}
+                                className="absolute top-0 bottom-0 rounded-[1px]"
+                                style={{
+                                    left: `${leftPercent}%`,
+                                    width: `${Math.max(0.2, segmentWidthPercent - 0.1)}%`, // -0.1 for gap
+                                    backgroundColor: color,
+                                    opacity: 0.4 + (s.intensity * 0.6)
+                                }}
+                                initial={{ scaleY: 0 }}
+                                animate={{ scaleY: 1 }}
+                                whileHover={{ scaleY: 1.5, opacity: 1, zIndex: 10 }}
+                                onMouseEnter={(e) => setHoveredSegment({ sensor, segment: s, x: e.clientX })}
+                                onMouseLeave={() => setHoveredSegment(null)}
+                            />
                         )
                     })}
                 </div>
+
+                {/* Time Axis Labels */}
+                <div className="absolute bottom-0 left-0 right-0 h-4 text-[9px] text-zinc-500 font-medium flex justify-between px-1">
+                    <span>
+                        {new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span>
+                        {new Date(startTime + config.duration / 2).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span>
+                        {new Date(endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                </div>
+
             </div>
         )
     }
@@ -256,21 +227,23 @@ export function HeatmapController() {
                     </p>
                 </div>
 
-                <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto overflow-x-auto scrollbar-hide">
-                    {/* Time Range Selector */}
-                    <div className="flex bg-zinc-800/80 rounded-xl p-1 border border-zinc-700/50 overflow-x-auto scrollbar-hide">
-                        {(Object.keys(TIME_RANGES) as TimeRangeKey[]).map((key) => (
-                            <button
-                                key={key}
-                                onClick={() => setResolution(key)}
-                                className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 whitespace-nowrap ${resolution === key
-                                    ? 'bg-purple-500/20 text-purple-400 shadow-lg shadow-purple-500/10'
-                                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50'
-                                    }`}
-                            >
-                                {TIME_RANGES[key].label}
-                            </button>
-                        ))}
+                <div className="flex items-center gap-2 sm:gap-3">
+                    {/* Time Range Selector - Mobile Safe */}
+                    <div className="relative">
+                        <select
+                            value={resolution}
+                            onChange={(e) => setResolution(e.target.value as TimeRangeKey)}
+                            className="bg-zinc-800/80 text-zinc-300 text-xs font-semibold rounded-lg border border-zinc-700/50 px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500/50 appearance-none pr-8 cursor-pointer"
+                        >
+                            {(Object.keys(TIME_RANGES) as TimeRangeKey[]).map((key) => (
+                                <option key={key} value={key} className="bg-zinc-900 text-zinc-300">
+                                    {TIME_RANGES[key].label}
+                                </option>
+                            ))}
+                        </select>
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                        </div>
                     </div>
 
                     {/* Refresh */}
@@ -285,38 +258,29 @@ export function HeatmapController() {
             </div>
 
             {/* Hovered Box Info */}
+            {/* Hovered Box Info */}
             <AnimatePresence>
-                {hoveredBox && (
+                {hoveredSegment && (
                     <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        className="mb-3 sm:mb-4 px-3 sm:px-4 py-2 sm:py-3 rounded-xl bg-zinc-800/70 border border-zinc-700/50"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="absolute z-50 px-3 py-2 rounded-xl bg-zinc-900/90 backdrop-blur-md border border-zinc-700 shadow-xl pointer-events-none transform -translate-x-1/2 -translate-y-full mb-2"
+                        style={{ left: hoveredSegment.x, top: -10 }}
                     >
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 text-xs sm:text-sm">
-                            <div className="flex items-center gap-2 sm:gap-3">
-                                {hoveredBox.sensor === 'light' ? (
-                                    <Sun className="w-4 h-4 text-yellow-400" />
-                                ) : (
-                                    <Activity className="w-4 h-4 text-emerald-400" />
-                                )}
-                                <span className="text-zinc-300 font-medium capitalize">{hoveredBox.sensor}</span>
-                                <span className="text-zinc-500">|</span>
-                                <span className="text-zinc-400">
-                                    {hoveredBox.box.startTime.toLocaleString('en-US', {
-                                        month: 'short',
-                                        day: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        second: resolution === '1m' ? '2-digit' : undefined
-                                    })}
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <span style={{ color: hoveredBox.sensor === 'light' ? '#eab308' : '#22c55e' }}>
-                                    {hoveredBox.box.hasEvent ? `${hoveredBox.box.eventCount} event${hoveredBox.box.eventCount > 1 ? 's' : ''}` : 'No events'}
-                                </span>
-                            </div>
+                        <div className="flex items-center gap-2 text-xs">
+                            {hoveredSegment.sensor === 'light' ? (
+                                <Sun className="w-3.5 h-3.5 text-yellow-400" />
+                            ) : (
+                                <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                            )}
+                            <span className="text-zinc-300 font-medium">
+                                {new Date(hoveredSegment.segment.start).toLocaleTimeString()}
+                            </span>
+                            <span className="text-zinc-500">|</span>
+                            <span className={hoveredSegment.sensor === 'light' ? 'text-yellow-400' : 'text-emerald-400'}>
+                                {Math.round(hoveredSegment.segment.intensity * 100)}% Activity
+                            </span>
                         </div>
                     </motion.div>
                 )}
@@ -339,9 +303,9 @@ export function HeatmapController() {
                             <div>
                                 <span className="text-sm font-semibold text-zinc-300">Light Changes</span>
                                 <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                                    <span>{lightStats.events} state changes</span>
+                                    <span>{lightStats.events} active events</span>
                                     <span>•</span>
-                                    <span style={{ color: '#eab308' }}>{lightStats.activeBoxes}/{lightStats.totalBoxes} boxes</span>
+                                    <span style={{ color: '#eab308' }}>{Math.round(lightStats.activeSegments / lightStats.totalSegments * 100 || 0)}% density</span>
                                 </div>
                             </div>
                         </div>
@@ -375,8 +339,10 @@ export function HeatmapController() {
                         </div>
                     </div>
 
-                    {renderTimeBoxes(lightBoxes, 'light', '#eab308')}
                 </div>
+
+                {renderTimeline(lightSegments, 'light', '#eab308')}
+
 
                 {/* Motion Heatmap */}
                 <div className="space-y-2 sm:space-y-3">
@@ -393,9 +359,9 @@ export function HeatmapController() {
                             <div>
                                 <span className="text-sm font-semibold text-zinc-300">Motion Changes</span>
                                 <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                                    <span>{motionStats.events} state changes</span>
+                                    <span>{motionStats.events} active events</span>
                                     <span>•</span>
-                                    <span style={{ color: '#22c55e' }}>{motionStats.activeBoxes}/{motionStats.totalBoxes} boxes</span>
+                                    <span style={{ color: '#22c55e' }}>{Math.round(motionStats.activeSegments / motionStats.totalSegments * 100 || 0)}% density</span>
                                 </div>
                             </div>
                         </div>
@@ -429,7 +395,7 @@ export function HeatmapController() {
                         </div>
                     </div>
 
-                    {renderTimeBoxes(motionBoxes, 'motion', '#22c55e')}
+                    {renderTimeline(motionSegments, 'motion', '#22c55e')}
                 </div>
             </div>
 
@@ -437,8 +403,8 @@ export function HeatmapController() {
             <div className="mt-4 pt-4 border-t border-zinc-800/50 flex items-center justify-between text-[10px] text-zinc-500">
                 <div className="flex items-center gap-2">
                     <Clock className="w-3 h-3" />
-                    <span className="hidden sm:inline">Boxes show state change events only</span>
-                    <span className="sm:hidden">Event-based timeline</span>
+                    <span className="hidden sm:inline">Barcode shows activity intensity over time</span>
+                    <span className="sm:hidden">Activity intensity</span>
                 </div>
                 <div className="flex items-center gap-2">
                     {isFirebaseConnected && (
