@@ -11,21 +11,23 @@ interface HeatmapDataPoint {
     readings: number
 }
 
-interface HeatmapCell {
-    dayOfWeek: number // 0 = Sunday, 6 = Saturday
-    weekIndex: number
-    date: Date
-    value: number
-    readings: number
-    dateKey: string
+interface TimeBox {
+    index: number
+    startTime: Date
+    endTime: Date
+    hasEvent: boolean
+    eventCount: number
+    label: string
 }
 
 const TIME_RANGES = {
-    '1h': { label: '1 Hour', apiRange: '1h', description: 'Last hour, per minute' },
-    '6h': { label: '6 Hours', apiRange: '6h', description: 'Last 6 hours' },
-    '24h': { label: '24 Hours', apiRange: '24h', description: 'Last 24 hours' },
-    '3d': { label: '3 Days', apiRange: '3d', description: 'Last 3 days' },
-    '7d': { label: '7 Days', apiRange: '7d', description: 'Last week' },
+    '1m': { label: '1 Minute', apiRange: '1h', description: 'Last minute in seconds', boxes: 60, boxDuration: 1000 }, // 60 seconds
+    '1h': { label: '1 Hour', apiRange: '1h', description: 'Last hour in minutes', boxes: 60, boxDuration: 60000 }, // 60 minutes
+    '6h': { label: '6 Hours', apiRange: '6h', description: 'Last 6 hours', boxes: 6, boxDuration: 3600000 }, // 6 hours
+    '24h': { label: '24 Hours', apiRange: '24h', description: 'Last 24 hours', boxes: 24, boxDuration: 3600000 }, // 24 hours
+    '3d': { label: '3 Days', apiRange: '3d', description: 'Last 3 days', boxes: 3, boxDuration: 86400000 }, // 3 days
+    '7d': { label: '7 Days', apiRange: '7d', description: 'Last week', boxes: 7, boxDuration: 86400000 }, // 7 days
+    '30d': { label: '30 Days', apiRange: '7d', description: 'Last month', boxes: 30, boxDuration: 86400000 }, // 30 days
 } as const
 
 type TimeRangeKey = keyof typeof TIME_RANGES
@@ -36,7 +38,7 @@ export function HeatmapController() {
     const [motionData, setMotionData] = useState<HeatmapDataPoint[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-    const [hoveredCell, setHoveredCell] = useState<{ sensor: 'light' | 'motion', cell: HeatmapCell } | null>(null)
+    const [hoveredBox, setHoveredBox] = useState<{ sensor: 'light' | 'motion', box: TimeBox } | null>(null)
 
     const { current: liveData, isConnected: isFirebaseConnected } = useFirebaseSensor()
 
@@ -63,191 +65,160 @@ export function HeatmapController() {
         return () => clearInterval(interval)
     }, [fetchData])
 
-    // Process data into a grid format (weeks x days of week)
-    const processToGrid = useCallback((data: HeatmapDataPoint[]): HeatmapCell[] => {
-        if (!data || data.length === 0) return []
+    // Process data into time boxes - only fill boxes with state changes
+    const processToTimeBoxes = useCallback((data: HeatmapDataPoint[]): TimeBox[] => {
+        const config = TIME_RANGES[resolution]
+        const boxes: TimeBox[] = []
 
-        // Group by day (not hour)
-        const dayMap = new Map<string, { total: number; count: number; date: Date }>()
+        const now = Date.now()
+        const totalDuration = config.boxes * config.boxDuration
+        const startTime = now - totalDuration
 
-        data.forEach(point => {
-            const date = new Date(point.timestamp * 1000)
-            const dateKey = date.toDateString()
+        // Create all boxes (initially empty)
+        for (let i = 0; i < config.boxes; i++) {
+            const boxStart = new Date(startTime + (i * config.boxDuration))
+            const boxEnd = new Date(startTime + ((i + 1) * config.boxDuration))
 
-            const existing = dayMap.get(dateKey) || { total: 0, count: 0, date: new Date(date.getFullYear(), date.getMonth(), date.getDate()) }
-            existing.total += point.value * point.readings
-            existing.count += point.readings
-            dayMap.set(dateKey, existing)
-        })
-
-        // Find the start date (first Sunday before earliest data)
-        const allDates = Array.from(dayMap.keys()).map(k => new Date(k)).sort((a, b) => a.getTime() - b.getTime())
-        if (allDates.length === 0) return []
-
-        const firstDate = allDates[0]
-        const startDate = new Date(firstDate)
-        startDate.setDate(startDate.getDate() - startDate.getDay()) // Go back to Sunday
-
-        const cells: HeatmapCell[] = []
-
-        // Create cells for all days up to now
-        const now = new Date()
-        const currentDate = new Date(startDate)
-        let weekIndex = 0
-
-        while (currentDate <= now) {
-            const dateKey = currentDate.toDateString()
-            const dayData = dayMap.get(dateKey)
-
-            cells.push({
-                dayOfWeek: currentDate.getDay(),
-                weekIndex,
-                date: new Date(currentDate),
-                value: dayData ? dayData.total / dayData.count : 0,
-                readings: dayData ? dayData.count : 0,
-                dateKey
-            })
-
-            currentDate.setDate(currentDate.getDate() + 1)
-            if (currentDate.getDay() === 0 && currentDate > startDate) {
-                weekIndex++
+            // Format label based on resolution
+            let label = ''
+            if (resolution === '1m') {
+                label = boxStart.getSeconds() + 's'
+            } else if (resolution === '1h') {
+                label = boxStart.getMinutes() + 'm'
+            } else if (resolution === '6h' || resolution === '24h') {
+                label = boxStart.getHours() + 'h'
+            } else {
+                label = boxStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
             }
+
+            boxes.push({
+                index: i,
+                startTime: boxStart,
+                endTime: boxEnd,
+                hasEvent: false,
+                eventCount: 0,
+                label
+            })
         }
 
-        return cells
-    }, [])
+        if (!data || data.length === 0) return boxes
 
-    // Group cells by week for grid display
-    const groupByWeek = useCallback((cells: HeatmapCell[]) => {
-        const weekMap = new Map<number, HeatmapCell[]>()
+        // Sort data by timestamp to detect state changes
+        const sortedData = [...data].sort((a, b) => a.timestamp - b.timestamp)
 
-        cells.forEach(cell => {
-            const existing = weekMap.get(cell.weekIndex) || []
-            existing.push(cell)
-            weekMap.set(cell.weekIndex, existing)
+        // Detect state changes (transitions between 0 and 1)
+        let previousValue: number | null = null
+        sortedData.forEach(point => {
+            const pointTime = point.timestamp * 1000 // Convert to milliseconds
+            const currentValue = point.value >= 0.5 ? 1 : 0
+
+            // Check if this is a state change
+            if (previousValue !== null && previousValue !== currentValue) {
+                // Find which box this event falls into
+                const boxIndex = Math.floor((pointTime - startTime) / config.boxDuration)
+                if (boxIndex >= 0 && boxIndex < boxes.length) {
+                    boxes[boxIndex].hasEvent = true
+                    boxes[boxIndex].eventCount++
+                }
+            }
+
+            previousValue = currentValue
         })
 
-        return Array.from(weekMap.entries())
-            .sort((a, b) => a[0] - b[0])
-            .map(([weekIndex, weekCells]) => ({
-                weekIndex,
-                cells: weekCells.sort((a, b) => a.dayOfWeek - b.dayOfWeek)
-            }))
-    }, [])
+        return boxes
+    }, [resolution])
 
-    const lightGrid = useMemo(() => groupByWeek(processToGrid(lightData)), [lightData, processToGrid, groupByWeek])
-    const motionGrid = useMemo(() => groupByWeek(processToGrid(motionData)), [motionData, processToGrid, groupByWeek])
+    const lightBoxes = useMemo(() => processToTimeBoxes(lightData), [lightData, processToTimeBoxes])
+    const motionBoxes = useMemo(() => processToTimeBoxes(motionData), [motionData, processToTimeBoxes])
 
     // Stats
     const lightStats = useMemo(() => {
-        if (lightData.length === 0) return { avg: 0, total: 0 }
-        const total = lightData.reduce((sum, d) => sum + d.readings, 0)
-        const weightedSum = lightData.reduce((sum, d) => sum + d.value * d.readings, 0)
-        return { avg: total > 0 ? (weightedSum / total) * 100 : 0, total }
-    }, [lightData])
+        const totalEvents = lightBoxes.reduce((sum, box) => sum + box.eventCount, 0)
+        const boxesWithEvents = lightBoxes.filter(box => box.hasEvent).length
+        return { events: totalEvents, activeBoxes: boxesWithEvents, totalBoxes: lightBoxes.length }
+    }, [lightBoxes])
 
     const motionStats = useMemo(() => {
-        if (motionData.length === 0) return { avg: 0, total: 0 }
-        const total = motionData.reduce((sum, d) => sum + d.readings, 0)
-        const weightedSum = motionData.reduce((sum, d) => sum + d.value * d.readings, 0)
-        return { avg: total > 0 ? (weightedSum / total) * 100 : 0, total }
-    }, [motionData])
+        const totalEvents = motionBoxes.reduce((sum, box) => sum + box.eventCount, 0)
+        const boxesWithEvents = motionBoxes.filter(box => box.hasEvent).length
+        return { events: totalEvents, activeBoxes: boxesWithEvents, totalBoxes: motionBoxes.length }
+    }, [motionBoxes])
 
     const isLightActive = liveData.light !== null && liveData.light >= 0.5
     const isMotionActive = liveData.motion !== null && liveData.motion >= 0.5
 
-    // Color function for heatmap cells
-    const getCellStyle = (value: number, baseColor: string) => {
-        const intensity = Math.min(value, 1) // Clamp to 0-1
+    // Get box style - only show color if there's an event
+    const getBoxStyle = (box: TimeBox, baseColor: string) => {
+        if (!box.hasEvent) {
+            return {
+                backgroundColor: 'rgba(39, 39, 42, 0.3)',
+                border: '1px solid rgba(63, 63, 70, 0.5)'
+            }
+        }
 
         // Parse hex color
         const r = parseInt(baseColor.slice(1, 3), 16)
         const g = parseInt(baseColor.slice(3, 5), 16)
         const b = parseInt(baseColor.slice(5, 7), 16)
 
-        if (intensity < 0.05) {
-            return {
-                backgroundColor: 'rgba(39, 39, 42, 0.5)',
-                boxShadow: 'none'
-            }
-        }
-
-        const alpha = 0.2 + intensity * 0.8
-        const glowIntensity = intensity > 0.5 ? intensity * 0.6 : 0
+        // Intensity based on event count
+        const alpha = Math.min(0.4 + box.eventCount * 0.2, 1)
+        const glowIntensity = box.eventCount > 1 ? 0.4 : 0.2
 
         return {
             backgroundColor: `rgba(${r}, ${g}, ${b}, ${alpha})`,
-            boxShadow: glowIntensity > 0 ? `0 0 ${Math.round(glowIntensity * 12)}px rgba(${r}, ${g}, ${b}, ${glowIntensity})` : 'none'
+            border: `1px solid rgba(${r}, ${g}, ${b}, 0.6)`,
+            boxShadow: `0 0 ${Math.round(glowIntensity * 8)}px rgba(${r}, ${g}, ${b}, ${glowIntensity})`
         }
     }
 
-    const renderHeatmapGrid = (
-        grid: { weekIndex: number; cells: HeatmapCell[] }[],
+    const renderTimeBoxes = (
+        boxes: TimeBox[],
         sensor: 'light' | 'motion',
         color: string
     ) => {
-        if (grid.length === 0) {
+        if (boxes.length === 0) {
             return (
-                <div className="h-[120px] flex items-center justify-center text-zinc-500 text-sm">
+                <div className="h-[60px] flex items-center justify-center text-zinc-500 text-sm">
                     {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : 'No data available'}
                 </div>
             )
         }
 
-        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        const config = TIME_RANGES[resolution]
+
+        // Calculate box size based on number of boxes
+        const getBoxWidth = () => {
+            if (config.boxes <= 24) return 'w-8 sm:w-10 md:w-12'
+            if (config.boxes <= 60) return 'w-4 sm:w-5 md:w-6'
+            return 'w-3 sm:w-4'
+        }
 
         return (
             <div className="overflow-x-auto pb-2 -mx-4 sm:mx-0 px-4 sm:px-0">
-                <div className="flex gap-[3px] min-w-fit">
-                    {/* Day of week labels (vertical) */}
-                    <div className="flex flex-col gap-[3px] pr-2 sticky left-0 bg-zinc-900/95 z-10">
-                        <div className="h-3" /> {/* Spacer for month labels */}
-                        {dayLabels.map((day, idx) => (
-                            <div
-                                key={day}
-                                className={`text-[9px] text-zinc-500 flex items-center justify-end h-[11px] ${idx % 2 === 1 ? 'opacity-0' : ''}`}
-                            >
-                                {day}
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Week columns */}
-                    {grid.map(({ weekIndex, cells }) => {
-                        // Get the month label for first day of week
-                        const firstDayOfWeek = cells.find(c => c.dayOfWeek === 0)
-                        const monthLabel = (firstDayOfWeek && firstDayOfWeek.date.getDate() <= 7)
-                            ? firstDayOfWeek.date.toLocaleDateString('en-US', { month: 'short' })
-                            : ''
+                <div className="flex gap-[2px] min-w-fit">
+                    {boxes.map((box) => {
+                        const isHovered = hoveredBox?.sensor === sensor && hoveredBox?.box.index === box.index
 
                         return (
-                            <div key={weekIndex} className="flex flex-col gap-[3px]">
-                                {/* Month label */}
-                                <div className="h-3 text-[8px] text-zinc-400 font-medium">
-                                    {monthLabel}
-                                </div>
-
-                                {/* Day cells (Sun-Sat) */}
-                                {Array.from({ length: 7 }, (_, dayOfWeek) => {
-                                    const cell = cells.find(c => c.dayOfWeek === dayOfWeek)
-                                    const isHovered = hoveredCell?.sensor === sensor &&
-                                        hoveredCell?.cell.dateKey === cell?.dateKey
-
-                                    return (
-                                        <motion.div
-                                            key={dayOfWeek}
-                                            className={`w-[11px] h-[11px] rounded-[2px] cursor-pointer transition-all duration-100 ${
-                                                isHovered ? 'ring-2 ring-white/60 ring-offset-1 ring-offset-zinc-900 z-20' : ''
-                                            }`}
-                                            style={cell && cell.readings > 0 ? getCellStyle(cell.value, color) : { backgroundColor: 'rgba(39, 39, 42, 0.4)' }}
-                                            whileHover={{ scale: 1.2 }}
-                                            whileTap={{ scale: 1.1 }}
-                                            onMouseEnter={() => cell && cell.readings > 0 && setHoveredCell({ sensor, cell })}
-                                            onMouseLeave={() => setHoveredCell(null)}
-                                            onClick={() => cell && cell.readings > 0 && setHoveredCell({ sensor, cell })}
-                                        />
-                                    )
-                                })}
+                            <div key={box.index} className="flex flex-col items-center gap-1">
+                                <motion.div
+                                    className={`${getBoxWidth()} h-12 sm:h-14 rounded-md cursor-pointer transition-all duration-100 ${
+                                        isHovered ? 'ring-2 ring-white/60 ring-offset-1 ring-offset-zinc-900 z-20' : ''
+                                    }`}
+                                    style={getBoxStyle(box, color)}
+                                    whileHover={{ scale: 1.1, y: -2 }}
+                                    whileTap={{ scale: 1.05 }}
+                                    onMouseEnter={() => setHoveredBox({ sensor, box })}
+                                    onMouseLeave={() => setHoveredBox(null)}
+                                    onClick={() => setHoveredBox({ sensor, box })}
+                                />
+                                {/* Show label for every nth box to avoid clutter */}
+                                {(config.boxes <= 24 || box.index % Math.ceil(config.boxes / 12) === 0) && (
+                                    <span className="text-[8px] sm:text-[9px] text-zinc-500 font-medium">
+                                        {box.label}
+                                    </span>
+                                )}
                             </div>
                         )
                     })}
@@ -299,9 +270,9 @@ export function HeatmapController() {
                 </div>
             </div>
 
-            {/* Hovered Cell Info */}
+            {/* Hovered Box Info */}
             <AnimatePresence>
-                {hoveredCell && (
+                {hoveredBox && (
                     <motion.div
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -310,28 +281,26 @@ export function HeatmapController() {
                     >
                         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 text-xs sm:text-sm">
                             <div className="flex items-center gap-2 sm:gap-3">
-                                {hoveredCell.sensor === 'light' ? (
+                                {hoveredBox.sensor === 'light' ? (
                                     <Sun className="w-4 h-4 text-yellow-400" />
                                 ) : (
                                     <Activity className="w-4 h-4 text-emerald-400" />
                                 )}
-                                <span className="text-zinc-300 font-medium capitalize">{hoveredCell.sensor}</span>
+                                <span className="text-zinc-300 font-medium capitalize">{hoveredBox.sensor}</span>
                                 <span className="text-zinc-500">|</span>
                                 <span className="text-zinc-400">
-                                    {hoveredCell.cell.date.toLocaleDateString('en-US', {
-                                        weekday: 'long',
-                                        month: 'long',
+                                    {hoveredBox.box.startTime.toLocaleString('en-US', {
+                                        month: 'short',
                                         day: 'numeric',
-                                        year: 'numeric'
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        second: resolution === '1m' ? '2-digit' : undefined
                                     })}
                                 </span>
                             </div>
                             <div className="flex items-center gap-4">
-                                <span style={{ color: hoveredCell.sensor === 'light' ? '#eab308' : '#22c55e' }}>
-                                    {(hoveredCell.cell.value * 100).toFixed(0)}% active
-                                </span>
-                                <span className="text-zinc-400">
-                                    {hoveredCell.cell.readings} readings
+                                <span style={{ color: hoveredBox.sensor === 'light' ? '#eab308' : '#22c55e' }}>
+                                    {hoveredBox.box.hasEvent ? `${hoveredBox.box.eventCount} event${hoveredBox.box.eventCount > 1 ? 's' : ''}` : 'No events'}
                                 </span>
                             </div>
                         </div>
@@ -354,11 +323,11 @@ export function HeatmapController() {
                                 <Sun className="w-4 h-4" style={{ color: isLightActive ? '#eab308' : '#71717a' }} />
                             </motion.div>
                             <div>
-                                <span className="text-sm font-semibold text-zinc-300">Light Intensity</span>
+                                <span className="text-sm font-semibold text-zinc-300">Light Changes</span>
                                 <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                                    <span>{lightStats.total} readings</span>
+                                    <span>{lightStats.events} state changes</span>
                                     <span>•</span>
-                                    <span style={{ color: '#eab308' }}>{lightStats.avg.toFixed(1)}% BRIGHT</span>
+                                    <span style={{ color: '#eab308' }}>{lightStats.activeBoxes}/{lightStats.totalBoxes} boxes</span>
                                 </div>
                             </div>
                         </div>
@@ -366,17 +335,12 @@ export function HeatmapController() {
                         <div className="flex items-center gap-2 sm:gap-3">
                             {/* Legend */}
                             <div className="flex items-center gap-1 sm:gap-1.5 text-[8px] sm:text-[9px] text-zinc-500">
-                                <span className="hidden sm:inline">Dark</span>
+                                <span className="hidden sm:inline">Empty</span>
                                 <div className="flex gap-0.5">
-                                    {[0, 0.25, 0.5, 0.75, 1].map(v => (
-                                        <div
-                                            key={v}
-                                            className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
-                                            style={getCellStyle(v, '#eab308')}
-                                        />
-                                    ))}
+                                    <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: 'rgba(39, 39, 42, 0.3)', border: '1px solid rgba(63, 63, 70, 0.5)' }} />
+                                    <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: 'rgba(234, 179, 8, 0.6)', border: '1px solid rgba(234, 179, 8, 0.6)' }} />
                                 </div>
-                                <span className="hidden sm:inline">Bright</span>
+                                <span className="hidden sm:inline">Event</span>
                             </div>
 
                             {/* Live indicator */}
@@ -397,7 +361,7 @@ export function HeatmapController() {
                         </div>
                     </div>
 
-                    {renderHeatmapGrid(lightGrid, 'light', '#eab308')}
+                    {renderTimeBoxes(lightBoxes, 'light', '#eab308')}
                 </div>
 
                 {/* Motion Heatmap */}
@@ -413,11 +377,11 @@ export function HeatmapController() {
                                 <Activity className="w-4 h-4" style={{ color: isMotionActive ? '#22c55e' : '#71717a' }} />
                             </motion.div>
                             <div>
-                                <span className="text-sm font-semibold text-zinc-300">Motion Activity</span>
+                                <span className="text-sm font-semibold text-zinc-300">Motion Changes</span>
                                 <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                                    <span>{motionStats.total} readings</span>
+                                    <span>{motionStats.events} state changes</span>
                                     <span>•</span>
-                                    <span style={{ color: '#22c55e' }}>{motionStats.avg.toFixed(1)}% DETECTED</span>
+                                    <span style={{ color: '#22c55e' }}>{motionStats.activeBoxes}/{motionStats.totalBoxes} boxes</span>
                                 </div>
                             </div>
                         </div>
@@ -425,17 +389,12 @@ export function HeatmapController() {
                         <div className="flex items-center gap-2 sm:gap-3">
                             {/* Legend */}
                             <div className="flex items-center gap-1 sm:gap-1.5 text-[8px] sm:text-[9px] text-zinc-500">
-                                <span className="hidden sm:inline">None</span>
+                                <span className="hidden sm:inline">Empty</span>
                                 <div className="flex gap-0.5">
-                                    {[0, 0.25, 0.5, 0.75, 1].map(v => (
-                                        <div
-                                            key={v}
-                                            className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
-                                            style={getCellStyle(v, '#22c55e')}
-                                        />
-                                    ))}
+                                    <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: 'rgba(39, 39, 42, 0.3)', border: '1px solid rgba(63, 63, 70, 0.5)' }} />
+                                    <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm" style={{ backgroundColor: 'rgba(34, 197, 94, 0.6)', border: '1px solid rgba(34, 197, 94, 0.6)' }} />
                                 </div>
-                                <span className="hidden sm:inline">Detected</span>
+                                <span className="hidden sm:inline">Event</span>
                             </div>
 
                             {/* Live indicator */}
@@ -456,7 +415,7 @@ export function HeatmapController() {
                         </div>
                     </div>
 
-                    {renderHeatmapGrid(motionGrid, 'motion', '#22c55e')}
+                    {renderTimeBoxes(motionBoxes, 'motion', '#22c55e')}
                 </div>
             </div>
 
@@ -464,8 +423,8 @@ export function HeatmapController() {
             <div className="mt-4 pt-4 border-t border-zinc-800/50 flex items-center justify-between text-[10px] text-zinc-500">
                 <div className="flex items-center gap-2">
                     <Clock className="w-3 h-3" />
-                    <span className="hidden sm:inline">Rows: Days of week | Columns: Weeks</span>
-                    <span className="sm:hidden">Activity by day</span>
+                    <span className="hidden sm:inline">Boxes show state change events only</span>
+                    <span className="sm:hidden">Event-based timeline</span>
                 </div>
                 <div className="flex items-center gap-2">
                     {isFirebaseConnected && (
