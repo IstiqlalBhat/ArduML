@@ -5,8 +5,6 @@ import { motion } from "framer-motion"
 import {
   Thermometer,
   Droplets,
-  Sun,
-  Activity,
   Radio,
   Clock,
   Zap,
@@ -18,7 +16,6 @@ import { useFirebaseSensor } from "@/hooks/useFirebaseSensor"
 import { LiveSensorCard } from "@/components/dashboard/LiveSensorCard"
 import { ConnectionStatus } from "@/components/dashboard/ActivityPulse"
 import { CandleStickChart } from "@/components/charts/CandleStickChart"
-import { BinaryStepChart } from "@/components/charts/BinaryStepChart"
 import { HeatmapController } from "@/components/HeatmapController"
 
 type TimeRange = "30s" | "1m" | "5m" | "15m" | "1h" | "4h" | "1d"
@@ -135,16 +132,16 @@ export default function ArduinoDashboard() {
           </div>
 
           {/* Time range selector */}
-          <div className="flex flex-col items-start xl:items-end gap-2">
-            <div className="flex items-center gap-3">
-              <Clock className="w-4 h-4 text-zinc-500" />
-              <div className="flex bg-zinc-900/80 backdrop-blur-xl rounded-xl p-1 border border-zinc-800/50">
+          <div className="flex flex-col items-start xl:items-end gap-2 w-full xl:w-auto">
+            <div className="flex items-center gap-2 w-full xl:w-auto overflow-x-auto">
+              <Clock className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+              <div className="flex bg-zinc-900/80 backdrop-blur-xl rounded-xl p-1 border border-zinc-800/50 overflow-x-auto scrollbar-hide">
                 {timeRanges.map((range) => (
                   <button
                     key={range.value}
                     onClick={() => setTimeRange(range.value)}
                     className={`
-                      px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200
+                      px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 whitespace-nowrap
                       ${timeRange === range.value
                         ? "bg-emerald-500/20 text-emerald-400 shadow-lg shadow-emerald-500/10"
                         : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
@@ -158,7 +155,7 @@ export default function ArduinoDashboard() {
               </div>
             </div>
             {currentTimeRange && (
-              <span className="text-[10px] text-zinc-600">
+              <span className="text-[10px] text-zinc-600 hidden sm:block">
                 {currentTimeRange.description}
               </span>
             )}
@@ -213,14 +210,14 @@ export default function ArduinoDashboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
             <div className="flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-cyan-400" />
               <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
                 Charts ({timeRange} candles)
               </h2>
             </div>
-            <div className="flex items-center gap-4 text-[10px] text-zinc-500">
+            <div className="hidden md:flex items-center gap-4 text-[10px] text-zinc-500">
               <span className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full bg-emerald-500" />
                 Up candle
@@ -242,7 +239,7 @@ export default function ArduinoDashboard() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.3 }}
-              className="h-[420px]"
+              className="h-[300px] sm:h-[350px] lg:h-[420px]"
             >
               <CandleStickChart
                 title="Temperature"
@@ -258,7 +255,7 @@ export default function ArduinoDashboard() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.35 }}
-              className="h-[420px]"
+              className="h-[300px] sm:h-[350px] lg:h-[420px]"
             >
               <CandleStickChart
                 title="Humidity"
@@ -288,19 +285,19 @@ export default function ArduinoDashboard() {
           transition={{ delay: 0.5 }}
           className="mt-8 pt-6 border-t border-zinc-800/50 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-zinc-500"
         >
-          <div className="flex items-center gap-4">
-            <span>ArduML IoT Dashboard</span>
-            <span className="w-1 h-1 rounded-full bg-zinc-700" />
-            <span>Candlestick charts with OHLC data</span>
+          <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-4">
+            <span className="font-semibold">ArduML IoT Dashboard</span>
+            <span className="hidden sm:block w-1 h-1 rounded-full bg-zinc-700" />
+            <span className="hidden sm:block">Candlestick charts with OHLC data</span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4">
             <div className="flex items-center gap-2">
               {isFirebaseConnected ? (
                 <Wifi className="w-3 h-3 text-emerald-400" />
               ) : (
                 <WifiOff className="w-3 h-3 text-zinc-600" />
               )}
-              <span>
+              <span className="text-[10px] sm:text-xs">
                 {isFirebaseConnected
                   ? `Firebase: ${firebaseLastUpdate?.toLocaleTimeString() ?? "N/A"}`
                   : "Firebase: Connecting..."}
@@ -309,7 +306,7 @@ export default function ArduinoDashboard() {
             {lastApiUpdate && (
               <div className="flex items-center gap-2">
                 <Zap className="w-3 h-3 text-cyan-400" />
-                <span>Supabase: {lastApiUpdate.toLocaleTimeString()}</span>
+                <span className="text-[10px] sm:text-xs">Supabase: {lastApiUpdate.toLocaleTimeString()}</span>
               </div>
             )}
           </div>

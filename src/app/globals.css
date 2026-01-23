@@ -270,6 +270,28 @@ a:focus-visible {
   color: #fff;
 }
 
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mobile touch optimizations */
+@media (max-width: 768px) {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button, a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
 /* ApexCharts customization */
 .apexcharts-tooltip {
   background: rgba(24, 24, 27, 0.95) !important;
