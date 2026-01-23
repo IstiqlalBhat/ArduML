@@ -16,29 +16,29 @@ export async function GET(request: Request) {
             bucketSeconds = 1      // 1 second buckets
             timeRange = '1 minute'
             break
-        case '5m':
-            bucketSeconds = 5      // 5 second buckets
-            timeRange = '5 minutes'
-            break
         case '1h':
             bucketSeconds = 60     // 1 minute buckets
             timeRange = '1 hour'
             break
         case '6h':
-            bucketSeconds = 360    // 6 minute buckets
+            bucketSeconds = 3600   // 1 hour buckets
             timeRange = '6 hours'
             break
         case '24h':
-            bucketSeconds = 900    // 15 minute buckets
+            bucketSeconds = 3600    // 1 hour buckets
             timeRange = '24 hours'
             break
         case '3d':
-            bucketSeconds = 3600   // 1 hour buckets
+            bucketSeconds = 86400   // 1 day buckets
             timeRange = '3 days'
             break
         case '7d':
-            bucketSeconds = 3600   // 1 hour buckets
+            bucketSeconds = 86400   // 1 day buckets
             timeRange = '7 days'
+            break
+        case '30d':
+            bucketSeconds = 86400   // 1 day buckets
+            timeRange = '30 days'
             break
     }
 

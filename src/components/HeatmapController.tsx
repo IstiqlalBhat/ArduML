@@ -21,13 +21,13 @@ interface TimeBox {
 }
 
 const TIME_RANGES = {
-    '1m': { label: '1 Minute', apiRange: '1h', description: 'Last minute in seconds', boxes: 60, boxDuration: 1000 }, // 60 seconds
-    '1h': { label: '1 Hour', apiRange: '1h', description: 'Last hour in minutes', boxes: 60, boxDuration: 60000 }, // 60 minutes
-    '6h': { label: '6 Hours', apiRange: '6h', description: 'Last 6 hours', boxes: 6, boxDuration: 3600000 }, // 6 hours
-    '24h': { label: '24 Hours', apiRange: '24h', description: 'Last 24 hours', boxes: 24, boxDuration: 3600000 }, // 24 hours
-    '3d': { label: '3 Days', apiRange: '3d', description: 'Last 3 days', boxes: 3, boxDuration: 86400000 }, // 3 days
-    '7d': { label: '7 Days', apiRange: '7d', description: 'Last week', boxes: 7, boxDuration: 86400000 }, // 7 days
-    '30d': { label: '30 Days', apiRange: '7d', description: 'Last month', boxes: 30, boxDuration: 86400000 }, // 30 days
+    '1m': { label: '1 Minute', apiRange: '1m', description: 'Last minute', boxes: 60, boxDuration: 1000 }, // 60s -> 60 boxes (1s)
+    '1h': { label: '1 Hour', apiRange: '1h', description: 'Last hour', boxes: 60, boxDuration: 60000 }, // 60m -> 60 boxes (1m)
+    '6h': { label: '6 Hours', apiRange: '6h', description: 'Last 6 hours', boxes: 6, boxDuration: 3600000 }, // 6h -> 6 boxes (1h)
+    '24h': { label: '24 Hours', apiRange: '24h', description: 'Last 24 hours', boxes: 24, boxDuration: 3600000 }, // 24h -> 24 boxes (1h)
+    '3d': { label: '3 Days', apiRange: '3d', description: 'Last 3 days', boxes: 3, boxDuration: 86400000 }, // 3d -> 3 boxes (1d)
+    '7d': { label: '7 Days', apiRange: '7d', description: 'Last week', boxes: 7, boxDuration: 86400000 }, // 7d -> 7 boxes (1d)
+    '30d': { label: '30 Days', apiRange: '30d', description: 'Last month', boxes: 30, boxDuration: 86400000 }, // 30d -> 30 boxes (1d)
 } as const
 
 type TimeRangeKey = keyof typeof TIME_RANGES
@@ -65,65 +65,79 @@ export function HeatmapController() {
         return () => clearInterval(interval)
     }, [fetchData])
 
-    // Process data into time boxes - only fill boxes with state changes
+    // Process data into time boxes
     const processToTimeBoxes = useCallback((data: HeatmapDataPoint[]): TimeBox[] => {
         const config = TIME_RANGES[resolution]
         const boxes: TimeBox[] = []
 
         const now = Date.now()
+        // Align start time to the nearest box boundary to match API buckets which are likely aligned
+        // But for simplicity, we keep the rolling window approach: Now - TotalDuration
         const totalDuration = config.boxes * config.boxDuration
         const startTime = now - totalDuration
 
-        // Create all boxes (initially empty)
-        for (let i = 0; i < config.boxes; i++) {
-            const boxStart = new Date(startTime + (i * config.boxDuration))
-            const boxEnd = new Date(startTime + ((i + 1) * config.boxDuration))
+        // Helper to find data point for a box
+        const findDataInBox = (boxStart: number, boxEnd: number) => {
+            return data.find(p => {
+                const t = p.timestamp * 1000
+                return t >= boxStart && t < boxEnd
+            })
+        }
 
-            // Format label based on resolution
+        let previousValue = data.length > 0 ? (data[0].timestamp * 1000 < startTime ? data[0].value : 0) : 0
+
+        for (let i = 0; i < config.boxes; i++) {
+            const boxStart = startTime + (i * config.boxDuration)
+            const boxEnd = startTime + ((i + 1) * config.boxDuration)
+
+            const point = findDataInBox(boxStart, boxEnd)
+            let hasEvent = false
+            let eventCount = 0
+
+            if (point) {
+                // Determine if this box represents an "event"
+                // For Motion: Any non-zero value implies motion
+                // For Light: Use variance or change from previous
+                if (resolution === '1m') {
+                    // High precision mode
+                    hasEvent = point.value > 0.1
+                } else {
+                    // Aggregated mode
+                    // If value is between 0.1 and 0.9, it implies flipping occurred during this bucket
+                    // OR if value changed significantly from previous bucket
+                    const isSwitching = point.value > 0.1 && point.value < 0.9
+                    const isChanged = Math.abs(point.value - previousValue) > 0.5
+                    hasEvent = isSwitching || isChanged
+                }
+
+                if (hasEvent) {
+                    eventCount = point.readings || 1
+                }
+                previousValue = point.value
+            }
+
+            // Format label
             let label = ''
+            const date = new Date(boxStart)
             if (resolution === '1m') {
-                label = boxStart.getSeconds() + 's'
+                label = date.getSeconds() + 's'
             } else if (resolution === '1h') {
-                label = boxStart.getMinutes() + 'm'
+                label = date.getMinutes() + 'm'
             } else if (resolution === '6h' || resolution === '24h') {
-                label = boxStart.getHours() + 'h'
+                label = date.getHours() + ':00'
             } else {
-                label = boxStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
             }
 
             boxes.push({
                 index: i,
-                startTime: boxStart,
-                endTime: boxEnd,
-                hasEvent: false,
-                eventCount: 0,
+                startTime: new Date(boxStart),
+                endTime: new Date(boxEnd),
+                hasEvent,
+                eventCount,
                 label
             })
         }
-
-        if (!data || data.length === 0) return boxes
-
-        // Sort data by timestamp to detect state changes
-        const sortedData = [...data].sort((a, b) => a.timestamp - b.timestamp)
-
-        // Detect state changes (transitions between 0 and 1)
-        let previousValue: number | null = null
-        sortedData.forEach(point => {
-            const pointTime = point.timestamp * 1000 // Convert to milliseconds
-            const currentValue = point.value >= 0.5 ? 1 : 0
-
-            // Check if this is a state change
-            if (previousValue !== null && previousValue !== currentValue) {
-                // Find which box this event falls into
-                const boxIndex = Math.floor((pointTime - startTime) / config.boxDuration)
-                if (boxIndex >= 0 && boxIndex < boxes.length) {
-                    boxes[boxIndex].hasEvent = true
-                    boxes[boxIndex].eventCount++
-                }
-            }
-
-            previousValue = currentValue
-        })
 
         return boxes
     }, [resolution])
@@ -131,17 +145,15 @@ export function HeatmapController() {
     const lightBoxes = useMemo(() => processToTimeBoxes(lightData), [lightData, processToTimeBoxes])
     const motionBoxes = useMemo(() => processToTimeBoxes(motionData), [motionData, processToTimeBoxes])
 
-    // Stats
+    // Stats calculation based on new boxes
     const lightStats = useMemo(() => {
-        const totalEvents = lightBoxes.reduce((sum, box) => sum + box.eventCount, 0)
         const boxesWithEvents = lightBoxes.filter(box => box.hasEvent).length
-        return { events: totalEvents, activeBoxes: boxesWithEvents, totalBoxes: lightBoxes.length }
+        return { events: boxesWithEvents, activeBoxes: boxesWithEvents, totalBoxes: lightBoxes.length }
     }, [lightBoxes])
 
     const motionStats = useMemo(() => {
-        const totalEvents = motionBoxes.reduce((sum, box) => sum + box.eventCount, 0)
         const boxesWithEvents = motionBoxes.filter(box => box.hasEvent).length
-        return { events: totalEvents, activeBoxes: boxesWithEvents, totalBoxes: motionBoxes.length }
+        return { events: boxesWithEvents, activeBoxes: boxesWithEvents, totalBoxes: motionBoxes.length }
     }, [motionBoxes])
 
     const isLightActive = liveData.light !== null && liveData.light >= 0.5
@@ -187,35 +199,37 @@ export function HeatmapController() {
 
         const config = TIME_RANGES[resolution]
 
-        // Calculate box size based on number of boxes
-        const getBoxWidth = () => {
-            if (config.boxes <= 24) return 'w-8 sm:w-10 md:w-12'
-            if (config.boxes <= 60) return 'w-4 sm:w-5 md:w-6'
-            return 'w-3 sm:w-4'
-        }
-
         return (
-            <div className="overflow-x-auto pb-2 -mx-4 sm:mx-0 px-4 sm:px-0">
-                <div className="flex gap-[2px] min-w-fit">
+            <div className="w-full overflow-hidden">
+                <div className={`
+                    grid gap-1 w-full
+                    ${config.boxes <= 7 ? 'grid-cols-7' :
+                        config.boxes <= 24 ? 'grid-cols-12 sm:grid-cols-24' :
+                            'grid-cols-[repeat(15,minmax(0,1fr))] sm:grid-cols-[repeat(20,minmax(0,1fr))] md:grid-cols-[repeat(30,minmax(0,1fr))] lg:grid-cols-[repeat(60,minmax(0,1fr))]'
+                    }
+                `}>
                     {boxes.map((box) => {
                         const isHovered = hoveredBox?.sensor === sensor && hoveredBox?.box.index === box.index
+                        const showLabel = (
+                            config.boxes <= 7 ||
+                            (config.boxes <= 24 && box.index % 4 === 0) ||
+                            (config.boxes > 24 && box.index % 5 === 0)
+                        )
 
                         return (
-                            <div key={box.index} className="flex flex-col items-center gap-1">
+                            <div key={box.index} className="flex flex-col items-center gap-1 min-w-0">
                                 <motion.div
-                                    className={`${getBoxWidth()} h-12 sm:h-14 rounded-md cursor-pointer transition-all duration-100 ${
-                                        isHovered ? 'ring-2 ring-white/60 ring-offset-1 ring-offset-zinc-900 z-20' : ''
-                                    }`}
+                                    className={`
+                                        w-full aspect-[2/3] rounded-sm sm:rounded-md cursor-pointer transition-all duration-100 
+                                        ${isHovered ? 'ring-2 ring-white/60 ring-offset-1 ring-offset-zinc-900 z-20 scale-110' : ''}
+                                    `}
                                     style={getBoxStyle(box, color)}
-                                    whileHover={{ scale: 1.1, y: -2 }}
-                                    whileTap={{ scale: 1.05 }}
                                     onMouseEnter={() => setHoveredBox({ sensor, box })}
                                     onMouseLeave={() => setHoveredBox(null)}
-                                    onClick={() => setHoveredBox({ sensor, box })}
+                                    whileTap={{ scale: 0.95 }}
                                 />
-                                {/* Show label for every nth box to avoid clutter */}
-                                {(config.boxes <= 24 || box.index % Math.ceil(config.boxes / 12) === 0) && (
-                                    <span className="text-[8px] sm:text-[9px] text-zinc-500 font-medium">
+                                {showLabel && (
+                                    <span className="hidden sm:block text-[8px] text-zinc-500 font-medium truncate w-full text-center">
                                         {box.label}
                                     </span>
                                 )}
@@ -250,8 +264,8 @@ export function HeatmapController() {
                                 key={key}
                                 onClick={() => setResolution(key)}
                                 className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 whitespace-nowrap ${resolution === key
-                                        ? 'bg-purple-500/20 text-purple-400 shadow-lg shadow-purple-500/10'
-                                        : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50'
+                                    ? 'bg-purple-500/20 text-purple-400 shadow-lg shadow-purple-500/10'
+                                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50'
                                     }`}
                             >
                                 {TIME_RANGES[key].label}
