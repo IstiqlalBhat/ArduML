@@ -12,11 +12,12 @@ interface HeatmapDataPoint {
 }
 
 interface HeatmapCell {
-    hour: number
-    dayIndex: number
+    dayOfWeek: number // 0 = Sunday, 6 = Saturday
+    weekIndex: number
     date: Date
     value: number
     readings: number
+    dateKey: string
 }
 
 const TIME_RANGES = {
@@ -62,53 +63,80 @@ export function HeatmapController() {
         return () => clearInterval(interval)
     }, [fetchData])
 
-    // Process data into a grid format (days x hours)
+    // Process data into a grid format (weeks x days of week)
     const processToGrid = useCallback((data: HeatmapDataPoint[]): HeatmapCell[] => {
         if (!data || data.length === 0) return []
 
-        const cells: HeatmapCell[] = []
-        const seen = new Set<string>()
+        // Group by day (not hour)
+        const dayMap = new Map<string, { total: number; count: number; date: Date }>()
 
         data.forEach(point => {
             const date = new Date(point.timestamp * 1000)
-            const key = `${date.toDateString()}-${date.getHours()}`
+            const dateKey = date.toDateString()
 
-            if (!seen.has(key)) {
-                seen.add(key)
-                cells.push({
-                    hour: date.getHours(),
-                    dayIndex: Math.floor(date.getTime() / (24 * 60 * 60 * 1000)),
-                    date: new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours()),
-                    value: point.value,
-                    readings: point.readings
-                })
-            }
+            const existing = dayMap.get(dateKey) || { total: 0, count: 0, date: new Date(date.getFullYear(), date.getMonth(), date.getDate()) }
+            existing.total += point.value * point.readings
+            existing.count += point.readings
+            dayMap.set(dateKey, existing)
         })
 
-        return cells.sort((a, b) => a.date.getTime() - b.date.getTime())
+        // Find the start date (first Sunday before earliest data)
+        const allDates = Array.from(dayMap.keys()).map(k => new Date(k)).sort((a, b) => a.getTime() - b.getTime())
+        if (allDates.length === 0) return []
+
+        const firstDate = allDates[0]
+        const startDate = new Date(firstDate)
+        startDate.setDate(startDate.getDate() - startDate.getDay()) // Go back to Sunday
+
+        const cells: HeatmapCell[] = []
+
+        // Create cells for all days up to now
+        const now = new Date()
+        const currentDate = new Date(startDate)
+        let weekIndex = 0
+
+        while (currentDate <= now) {
+            const dateKey = currentDate.toDateString()
+            const dayData = dayMap.get(dateKey)
+
+            cells.push({
+                dayOfWeek: currentDate.getDay(),
+                weekIndex,
+                date: new Date(currentDate),
+                value: dayData ? dayData.total / dayData.count : 0,
+                readings: dayData ? dayData.count : 0,
+                dateKey
+            })
+
+            currentDate.setDate(currentDate.getDate() + 1)
+            if (currentDate.getDay() === 0 && currentDate > startDate) {
+                weekIndex++
+            }
+        }
+
+        return cells
     }, [])
 
-    // Group cells by day for grid display
-    const groupByDay = useCallback((cells: HeatmapCell[]) => {
-        const dayMap = new Map<number, HeatmapCell[]>()
+    // Group cells by week for grid display
+    const groupByWeek = useCallback((cells: HeatmapCell[]) => {
+        const weekMap = new Map<number, HeatmapCell[]>()
 
         cells.forEach(cell => {
-            const existing = dayMap.get(cell.dayIndex) || []
+            const existing = weekMap.get(cell.weekIndex) || []
             existing.push(cell)
-            dayMap.set(cell.dayIndex, existing)
+            weekMap.set(cell.weekIndex, existing)
         })
 
-        return Array.from(dayMap.entries())
+        return Array.from(weekMap.entries())
             .sort((a, b) => a[0] - b[0])
-            .map(([dayIndex, dayCells]) => ({
-                dayIndex,
-                date: dayCells[0]?.date || new Date(),
-                cells: dayCells.sort((a, b) => a.hour - b.hour)
+            .map(([weekIndex, weekCells]) => ({
+                weekIndex,
+                cells: weekCells.sort((a, b) => a.dayOfWeek - b.dayOfWeek)
             }))
     }, [])
 
-    const lightGrid = useMemo(() => groupByDay(processToGrid(lightData)), [lightData, processToGrid, groupByDay])
-    const motionGrid = useMemo(() => groupByDay(processToGrid(motionData)), [motionData, processToGrid, groupByDay])
+    const lightGrid = useMemo(() => groupByWeek(processToGrid(lightData)), [lightData, processToGrid, groupByWeek])
+    const motionGrid = useMemo(() => groupByWeek(processToGrid(motionData)), [motionData, processToGrid, groupByWeek])
 
     // Stats
     const lightStats = useMemo(() => {
@@ -154,7 +182,7 @@ export function HeatmapController() {
     }
 
     const renderHeatmapGrid = (
-        grid: { dayIndex: number; date: Date; cells: HeatmapCell[] }[],
+        grid: { weekIndex: number; cells: HeatmapCell[] }[],
         sensor: 'light' | 'motion',
         color: string
     ) => {
@@ -166,51 +194,63 @@ export function HeatmapController() {
             )
         }
 
+        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
         return (
             <div className="overflow-x-auto pb-2 -mx-4 sm:mx-0 px-4 sm:px-0">
-                <div className="flex gap-[2px] min-w-fit">
-                    {/* Hour labels */}
-                    <div className="flex flex-col gap-[2px] pr-1 sm:pr-2 sticky left-0 bg-zinc-900/95 z-10">
-                        <div className="h-4 sm:h-5" />
-                        {[0, 6, 12, 18].map(hour => (
+                <div className="flex gap-[3px] min-w-fit">
+                    {/* Day of week labels (vertical) */}
+                    <div className="flex flex-col gap-[3px] pr-2 sticky left-0 bg-zinc-900/95 z-10">
+                        <div className="h-3" /> {/* Spacer for month labels */}
+                        {dayLabels.map((day, idx) => (
                             <div
-                                key={hour}
-                                className="text-[8px] sm:text-[9px] text-zinc-500 flex items-center justify-end h-[16px] sm:h-[18px]"
-                                style={{ marginTop: hour === 0 ? 0 : `${5 * (16 + 2)}px` }}
+                                key={day}
+                                className={`text-[9px] text-zinc-500 flex items-center justify-end h-[11px] ${idx % 2 === 1 ? 'opacity-0' : ''}`}
                             >
-                                {String(hour).padStart(2, '0')}h
+                                {day}
                             </div>
                         ))}
                     </div>
 
-                    {/* Day columns */}
-                    {grid.map(({ dayIndex, date, cells }) => (
-                        <div key={dayIndex} className="flex flex-col gap-[2px]">
-                            <div className="h-4 sm:h-5 text-[8px] sm:text-[9px] text-zinc-400 flex items-center justify-center font-medium whitespace-nowrap px-0.5">
-                                {date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })}
-                            </div>
-                            {Array.from({ length: 24 }, (_, hour) => {
-                                const cell = cells.find(c => c.hour === hour)
-                                const isHovered = hoveredCell?.sensor === sensor &&
-                                    hoveredCell?.cell.dayIndex === dayIndex &&
-                                    hoveredCell?.cell.hour === hour
+                    {/* Week columns */}
+                    {grid.map(({ weekIndex, cells }) => {
+                        // Get the month label for first day of week
+                        const firstDayOfWeek = cells.find(c => c.dayOfWeek === 0)
+                        const monthLabel = (firstDayOfWeek && firstDayOfWeek.date.getDate() <= 7)
+                            ? firstDayOfWeek.date.toLocaleDateString('en-US', { month: 'short' })
+                            : ''
 
-                                return (
-                                    <motion.div
-                                        key={hour}
-                                        className={`w-5 sm:w-6 h-[16px] sm:h-[18px] rounded-[3px] cursor-pointer transition-all duration-100 ${isHovered ? 'ring-2 ring-white/60 ring-offset-1 ring-offset-zinc-900 z-20' : ''
+                        return (
+                            <div key={weekIndex} className="flex flex-col gap-[3px]">
+                                {/* Month label */}
+                                <div className="h-3 text-[8px] text-zinc-400 font-medium">
+                                    {monthLabel}
+                                </div>
+
+                                {/* Day cells (Sun-Sat) */}
+                                {Array.from({ length: 7 }, (_, dayOfWeek) => {
+                                    const cell = cells.find(c => c.dayOfWeek === dayOfWeek)
+                                    const isHovered = hoveredCell?.sensor === sensor &&
+                                        hoveredCell?.cell.dateKey === cell?.dateKey
+
+                                    return (
+                                        <motion.div
+                                            key={dayOfWeek}
+                                            className={`w-[11px] h-[11px] rounded-[2px] cursor-pointer transition-all duration-100 ${
+                                                isHovered ? 'ring-2 ring-white/60 ring-offset-1 ring-offset-zinc-900 z-20' : ''
                                             }`}
-                                        style={cell ? getCellStyle(cell.value, color) : { backgroundColor: 'rgba(39, 39, 42, 0.3)' }}
-                                        whileHover={{ scale: 1.15 }}
-                                        whileTap={{ scale: 1.1 }}
-                                        onMouseEnter={() => cell && setHoveredCell({ sensor, cell })}
-                                        onMouseLeave={() => setHoveredCell(null)}
-                                        onClick={() => cell && setHoveredCell({ sensor, cell })}
-                                    />
-                                )
-                            })}
-                        </div>
-                    ))}
+                                            style={cell && cell.readings > 0 ? getCellStyle(cell.value, color) : { backgroundColor: 'rgba(39, 39, 42, 0.4)' }}
+                                            whileHover={{ scale: 1.2 }}
+                                            whileTap={{ scale: 1.1 }}
+                                            onMouseEnter={() => cell && cell.readings > 0 && setHoveredCell({ sensor, cell })}
+                                            onMouseLeave={() => setHoveredCell(null)}
+                                            onClick={() => cell && cell.readings > 0 && setHoveredCell({ sensor, cell })}
+                                        />
+                                    )
+                                })}
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
         )
@@ -279,10 +319,11 @@ export function HeatmapController() {
                                 <span className="text-zinc-500">|</span>
                                 <span className="text-zinc-400">
                                     {hoveredCell.cell.date.toLocaleDateString('en-US', {
-                                        weekday: 'short',
-                                        month: 'short',
+                                        weekday: 'long',
+                                        month: 'long',
                                         day: 'numeric',
-                                    })} at {String(hoveredCell.cell.hour).padStart(2, '0')}:00
+                                        year: 'numeric'
+                                    })}
                                 </span>
                             </div>
                             <div className="flex items-center gap-4">
@@ -423,7 +464,8 @@ export function HeatmapController() {
             <div className="mt-4 pt-4 border-t border-zinc-800/50 flex items-center justify-between text-[10px] text-zinc-500">
                 <div className="flex items-center gap-2">
                     <Clock className="w-3 h-3" />
-                    <span>Rows: Hours (0-23) | Columns: Days</span>
+                    <span className="hidden sm:inline">Rows: Days of week | Columns: Weeks</span>
+                    <span className="sm:hidden">Activity by day</span>
                 </div>
                 <div className="flex items-center gap-2">
                     {isFirebaseConnected && (
