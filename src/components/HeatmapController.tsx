@@ -32,6 +32,34 @@ const TIME_RANGES = {
 
 type TimeRangeKey = keyof typeof TIME_RANGES
 
+// Format time labels based on resolution - show dates for multi-day views
+function formatTimeLabel(timestamp: number, resolution: TimeRangeKey): string {
+    const date = new Date(timestamp)
+
+    switch (resolution) {
+        case '1m':
+        case '1h':
+            // Short time ranges: just show time
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        case '6h':
+            // 6 hours: show time with hours
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        case '24h':
+            // 24 hours: show day and time to distinguish same-time different days
+            return date.toLocaleDateString([], { weekday: 'short' }) + ' ' +
+                   date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        case '3d':
+        case '7d':
+            // Multi-day views: show day and date
+            return date.toLocaleDateString([], { weekday: 'short', day: 'numeric' })
+        case '30d':
+            // Month view: show month and day
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+        default:
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+}
+
 export function HeatmapController() {
     const [resolution, setResolution] = useState<TimeRangeKey>('24h')
     const [lightData, setLightData] = useState<HeatmapDataPoint[]>([])
@@ -78,17 +106,47 @@ export function HeatmapController() {
             const t = point.timestamp * 1000
 
             // Determine activity intensity
+            // For longer time ranges, the average becomes very low because events are brief
+            // Use adaptive thresholds based on bucket size
             let hasEvent = false
             let intensity = 0
+            let threshold = 0.05
 
-            if (resolution === '1m') {
-                hasEvent = point.value > 0.1
-                intensity = hasEvent ? 1 : 0
-            } else {
-                // For aggregated views, use the value directly as intensity (0 to 1)
-                // If it's motion (0 or 1), average might be 0.5 if invoked half time etc.
-                hasEvent = point.value > 0.05
-                intensity = Math.min(point.value * 1.2, 1) // Boost visibility slightly
+            switch (resolution) {
+                case '1m':
+                    // 1-second buckets: value is either 0 or 1
+                    threshold = 0.1
+                    hasEvent = point.value > threshold
+                    intensity = hasEvent ? 1 : 0
+                    break
+                case '1h':
+                    // 1-minute buckets
+                    threshold = 0.05
+                    hasEvent = point.value > threshold
+                    intensity = Math.min(point.value * 2, 1)
+                    break
+                case '6h':
+                case '24h':
+                    // 1-hour buckets: even 1 minute of activity = 1/60 = 0.017
+                    threshold = 0.01
+                    hasEvent = point.value > threshold
+                    // Boost visibility since values are low
+                    intensity = Math.min(point.value * 5, 1)
+                    break
+                case '3d':
+                case '7d':
+                case '30d':
+                    // Daily buckets: even 15 minutes of activity = 15/1440 = 0.01
+                    // Any value > 0 means there was some activity that day
+                    threshold = 0.001
+                    hasEvent = point.value > threshold
+                    // Strongly boost visibility for sparse daily data
+                    intensity = hasEvent ? Math.max(0.4, Math.min(point.value * 20, 1)) : 0
+                    break
+                default:
+                    threshold = 0.05
+                    hasEvent = point.value > threshold
+                    intensity = Math.min(point.value * 1.2, 1)
             }
 
             return {
@@ -198,13 +256,13 @@ export function HeatmapController() {
                 {/* Time Axis Labels */}
                 <div className="absolute bottom-0 left-0 right-0 h-4 text-[9px] text-zinc-500 font-medium flex justify-between px-1">
                     <span>
-                        {new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {formatTimeLabel(startTime, resolution)}
                     </span>
                     <span>
-                        {new Date(startTime + config.duration / 2).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {formatTimeLabel(startTime + config.duration / 2, resolution)}
                     </span>
                     <span>
-                        {new Date(endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {formatTimeLabel(endTime, resolution)}
                     </span>
                 </div>
 
@@ -275,11 +333,11 @@ export function HeatmapController() {
                                 <Activity className="w-3.5 h-3.5 text-emerald-400" />
                             )}
                             <span className="text-zinc-300 font-medium">
-                                {new Date(hoveredSegment.segment.start).toLocaleTimeString()}
+                                {formatTimeLabel(hoveredSegment.segment.start, resolution)}
                             </span>
                             <span className="text-zinc-500">|</span>
                             <span className={hoveredSegment.sensor === 'light' ? 'text-yellow-400' : 'text-emerald-400'}>
-                                {Math.round(hoveredSegment.segment.intensity * 100)}% Activity
+                                {Math.round(hoveredSegment.segment.intensity * 100)}% Active Time
                             </span>
                         </div>
                     </motion.div>
