@@ -27,6 +27,10 @@ TEMP_RATE_THRESHOLD = 2.0  # Max degrees change between readings
 HUMIDITY_RATE_THRESHOLD = 5.0  # Max % humidity change between readings
 ISOLATION_CONTAMINATION = 0.05  # Expected proportion of anomalies
 
+# Minimum standard deviation to prevent false positives in stable conditions
+MIN_STD_TEMP = 0.5 
+MIN_STD_HUMIDITY = 2.0
+
 
 @dataclass
 class Anomaly:
@@ -86,15 +90,18 @@ class AnomalyDetector:
             return anomalies
 
         stats = self._calculate_stats(values)
-        if stats["std"] == 0:
-            return anomalies
+        
+        # Apply minimum standard deviation to avoid false positives
+        min_std = MIN_STD_TEMP if metric == "temperature" else MIN_STD_HUMIDITY
+        effective_std = max(stats["std"], min_std)
 
         for reading in self.data:
             value = reading[metric]
             if value is None:
                 continue
 
-            zscore = abs(value - stats["mean"]) / stats["std"]
+            # Use effective_std instead of stats["std"]
+            zscore = abs(value - stats["mean"]) / effective_std
 
             if zscore > ZSCORE_THRESHOLD:
                 severity = "high" if zscore > 4 else "medium" if zscore > 3.5 else "low"
@@ -104,8 +111,8 @@ class AnomalyDetector:
                     metric=metric,
                     value=value,
                     expected_range=(
-                        round(stats["mean"] - 2 * stats["std"], 2),
-                        round(stats["mean"] + 2 * stats["std"], 2)
+                        round(stats["mean"] - 2 * effective_std, 2),
+                        round(stats["mean"] + 2 * effective_std, 2)
                     ),
                     deviation=round(zscore, 2),
                     detection_method="zscore",

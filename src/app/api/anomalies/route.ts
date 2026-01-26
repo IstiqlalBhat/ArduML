@@ -8,6 +8,12 @@ const ZSCORE_THRESHOLD = 3.0
 const TEMP_RATE_THRESHOLD = 2.0  // degrees
 const HUMIDITY_RATE_THRESHOLD = 5.0  // percent
 
+// Minimum standard deviation to prevent false positives in stable conditions
+// If std dev is very small (e.g. 0.1), a change of 1 degree becomes a huge z-score.
+// These thresholds ensure we only check for statistical outliers if there's meaningful variance.
+const MIN_STD_TEMP = 0.5
+const MIN_STD_HUMIDITY = 2.0
+
 interface SensorReading {
     id: number
     temperature: number | null
@@ -68,13 +74,17 @@ function detectZScoreAnomalies(
     if (values.length < 10) return anomalies
 
     const stats = calculateStats(values)
-    if (stats.std === 0) return anomalies
+
+    // Apply minimum standard deviation to avoid false positives in very stable environments
+    const minStd = metric === 'temperature' ? MIN_STD_TEMP : MIN_STD_HUMIDITY
+    const effectiveStd = Math.max(stats.std, minStd)
 
     for (const reading of data) {
         const value = reading[metric]
         if (value === null) continue
 
-        const zscore = Math.abs(value - stats.mean) / stats.std
+        // Use effectiveStd instead of stats.std for z-score calculation
+        const zscore = Math.abs(value - stats.mean) / effectiveStd
 
         if (zscore > ZSCORE_THRESHOLD) {
             const severity: Anomaly['severity'] =
@@ -86,8 +96,8 @@ function detectZScoreAnomalies(
                 metric,
                 value,
                 expectedRange: [
-                    Math.round((stats.mean - 2 * stats.std) * 100) / 100,
-                    Math.round((stats.mean + 2 * stats.std) * 100) / 100
+                    Math.round((stats.mean - 2 * effectiveStd) * 100) / 100,
+                    Math.round((stats.mean + 2 * effectiveStd) * 100) / 100
                 ],
                 deviation: Math.round(zscore * 100) / 100,
                 detectionMethod: 'zscore',
