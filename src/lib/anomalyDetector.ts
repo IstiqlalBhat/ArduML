@@ -11,6 +11,10 @@ const TEMP_RATE_THRESHOLD = 2.0  // degrees
 const HUMIDITY_RATE_THRESHOLD = 5.0  // percent
 const WINDOW_SIZE = 500  // readings to analyze
 
+// Minimum standard deviation to prevent false positives in stable conditions
+const MIN_STD_TEMP = 0.5
+const MIN_STD_HUMIDITY = 2.0
+
 export interface Anomaly {
     id: number
     timestamp: string
@@ -80,8 +84,9 @@ export async function refreshStatsCache(): Promise<void> {
     }
 
     const readings = data as SensorReading[]
-    const tempValues = readings.map(r => r.temperature).filter((v): v is number => v !== null)
-    const humidValues = readings.map(r => r.humidity).filter((v): v is number => v !== null)
+    // Filter out nulls AND zeros (zeros often indicate sensor errors)
+    const tempValues = readings.map(r => r.temperature).filter((v): v is number => v !== null && v !== 0)
+    const humidValues = readings.map(r => r.humidity).filter((v): v is number => v !== null && v !== 0)
 
     statsCache = {
         temperature: calculateStats(tempValues),
@@ -109,8 +114,11 @@ export async function checkRealtimeAnomaly(
     }
 
     // Z-score check for temperature
-    if (statsCache.temperature && statsCache.temperature.std > 0) {
-        const zscore = Math.abs(temperature - statsCache.temperature.mean) / statsCache.temperature.std
+    if (statsCache.temperature && statsCache.temperature.mean !== 0) {
+        // Enforce minimum std dev to prevent hypersensitivity
+        const effectiveStd = Math.max(statsCache.temperature.std, MIN_STD_TEMP)
+        const zscore = Math.abs(temperature - statsCache.temperature.mean) / effectiveStd
+
         if (zscore > ZSCORE_THRESHOLD) {
             const severity: Anomaly['severity'] = zscore > 4 ? 'high' : zscore > 3.5 ? 'medium' : 'low'
             anomalies.push({
@@ -119,20 +127,23 @@ export async function checkRealtimeAnomaly(
                 metric: 'temperature',
                 value: temperature,
                 expectedRange: [
-                    Math.round((statsCache.temperature.mean - 2 * statsCache.temperature.std) * 100) / 100,
-                    Math.round((statsCache.temperature.mean + 2 * statsCache.temperature.std) * 100) / 100
+                    Math.round((statsCache.temperature.mean - 2 * effectiveStd) * 100) / 100,
+                    Math.round((statsCache.temperature.mean + 2 * effectiveStd) * 100) / 100
                 ],
                 deviation: Math.round(zscore * 100) / 100,
                 detectionMethod: 'realtime',
                 severity,
-                message: `ALERT: Temperature ${temperature}°C is ${zscore.toFixed(1)} std devs from normal (${statsCache.temperature.mean.toFixed(1)}°C)`
+                message: `ALERT: Temperature of ${temperature}°C is ${zscore.toFixed(1)} std devs from mean (${statsCache.temperature.mean.toFixed(1)}°C)`
             })
         }
     }
 
     // Z-score check for humidity
-    if (statsCache.humidity && statsCache.humidity.std > 0) {
-        const zscore = Math.abs(humidity - statsCache.humidity.mean) / statsCache.humidity.std
+    if (statsCache.humidity && statsCache.humidity.mean !== 0) {
+        // Enforce minimum std dev
+        const effectiveStd = Math.max(statsCache.humidity.std, MIN_STD_HUMIDITY)
+        const zscore = Math.abs(humidity - statsCache.humidity.mean) / effectiveStd
+
         if (zscore > ZSCORE_THRESHOLD) {
             const severity: Anomaly['severity'] = zscore > 4 ? 'high' : zscore > 3.5 ? 'medium' : 'low'
             anomalies.push({
@@ -141,13 +152,13 @@ export async function checkRealtimeAnomaly(
                 metric: 'humidity',
                 value: humidity,
                 expectedRange: [
-                    Math.round((statsCache.humidity.mean - 2 * statsCache.humidity.std) * 100) / 100,
-                    Math.round((statsCache.humidity.mean + 2 * statsCache.humidity.std) * 100) / 100
+                    Math.round((statsCache.humidity.mean - 2 * effectiveStd) * 100) / 100,
+                    Math.round((statsCache.humidity.mean + 2 * effectiveStd) * 100) / 100
                 ],
                 deviation: Math.round(zscore * 100) / 100,
                 detectionMethod: 'realtime',
                 severity,
-                message: `ALERT: Humidity ${humidity}% is ${zscore.toFixed(1)} std devs from normal (${statsCache.humidity.mean.toFixed(1)}%)`
+                message: `ALERT: Humidity of ${humidity}% is ${zscore.toFixed(1)} std devs from mean (${statsCache.humidity.mean.toFixed(1)}%)`
             })
         }
     }
@@ -156,7 +167,7 @@ export async function checkRealtimeAnomaly(
     if (statsCache.recentReadings.length > 0) {
         const lastReading = statsCache.recentReadings[0]
 
-        if (lastReading.temperature !== null) {
+        if (lastReading.temperature !== null && lastReading.temperature !== 0) {
             const tempChange = Math.abs(temperature - lastReading.temperature)
             if (tempChange > TEMP_RATE_THRESHOLD) {
                 const severity: Anomaly['severity'] = tempChange > TEMP_RATE_THRESHOLD * 2 ? 'high' :
@@ -173,12 +184,12 @@ export async function checkRealtimeAnomaly(
                     deviation: Math.round(tempChange * 100) / 100,
                     detectionMethod: 'rate_of_change',
                     severity,
-                    message: `ALERT: Temperature jumped by ${tempChange.toFixed(1)}°C (from ${lastReading.temperature}°C to ${temperature}°C)`
+                    message: `Temperature changed by ${tempChange.toFixed(1)} (from ${lastReading.temperature} to ${temperature}) - exceeds threshold of ${TEMP_RATE_THRESHOLD}`
                 })
             }
         }
 
-        if (lastReading.humidity !== null) {
+        if (lastReading.humidity !== null && lastReading.humidity !== 0) {
             const humidChange = Math.abs(humidity - lastReading.humidity)
             if (humidChange > HUMIDITY_RATE_THRESHOLD) {
                 const severity: Anomaly['severity'] = humidChange > HUMIDITY_RATE_THRESHOLD * 2 ? 'high' :
@@ -195,7 +206,7 @@ export async function checkRealtimeAnomaly(
                     deviation: Math.round(humidChange * 100) / 100,
                     detectionMethod: 'rate_of_change',
                     severity,
-                    message: `ALERT: Humidity jumped by ${humidChange.toFixed(1)}% (from ${lastReading.humidity}% to ${humidity}%)`
+                    message: `Humidity changed by ${humidChange.toFixed(1)} (from ${lastReading.humidity} to ${humidity}) - exceeds threshold of ${HUMIDITY_RATE_THRESHOLD}`
                 })
             }
         }

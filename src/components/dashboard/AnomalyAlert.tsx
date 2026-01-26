@@ -135,7 +135,7 @@ export function AnomalyAlert() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className={`
-                relative overflow-hidden rounded-2xl
+                relative rounded-2xl
                 bg-zinc-900/80 backdrop-blur-xl
                 border ${hasHighSeverity && alertsEnabled ? 'border-red-500/50' : 'border-zinc-800/50'}
                 transition-all duration-300
@@ -236,12 +236,13 @@ export function AnomalyAlert() {
             <AnimatePresence>
                 {isExpanded && (
                     <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.3 }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="border-t border-zinc-800/50"
                     >
-                        <div className="px-4 pb-4 space-y-4">
+                        <div className="px-4 pb-4 pt-4 space-y-4">
                             {/* Statistics */}
                             {data?.summary && (
                                 <div className="grid grid-cols-2 gap-3">
@@ -274,22 +275,20 @@ export function AnomalyAlert() {
 
                             {/* Anomaly list */}
                             {activeAnomalies.length > 0 ? (
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-zinc-800/50 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-zinc-600">
-                                    {activeAnomalies.slice(0, 10).map((anomaly) => {
+                                <div className="max-h-[400px] overflow-y-auto pr-2 -mr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-zinc-800/50 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-zinc-600">
+                                    <div className="space-y-2">
+                                    {activeAnomalies.map((anomaly) => {
                                         const config = severityConfig[anomaly.severity]
                                         const method = methodConfig[anomaly.detectionMethod]
                                         const MethodIcon = method.icon
 
                                         return (
-                                            <motion.div
+                                            <div
                                                 key={`${anomaly.id}-${anomaly.detectionMethod}`}
-                                                initial={{ opacity: 0, x: -10 }}
-                                                animate={{ opacity: 1, x: 0 }}
-                                                exit={{ opacity: 0, x: 10 }}
                                                 className={`
                                                     p-3 rounded-xl border
                                                     ${config.bg} ${config.border}
-                                                    transition-all duration-200 hover:scale-[1.01]
+                                                    transition-colors duration-200
                                                 `}
                                             >
                                                 <div className="flex items-start justify-between gap-2">
@@ -332,14 +331,10 @@ export function AnomalyAlert() {
                                                         <X className="w-4 h-4" />
                                                     </button>
                                                 </div>
-                                            </motion.div>
+                                            </div>
                                         )
                                     })}
-                                    {activeAnomalies.length > 10 && (
-                                        <div className="text-center text-xs text-zinc-500 py-2">
-                                            +{activeAnomalies.length - 10} more anomalies
-                                        </div>
-                                    )}
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="text-center py-6">
