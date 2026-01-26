@@ -1,6 +1,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { checkRealtimeAnomaly } from '@/lib/anomalyDetector'
 
 export async function POST(request: Request) {
     try {
@@ -40,7 +41,13 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: error.message }, { status: 500 })
         }
 
-        return NextResponse.json({ success: true })
+        // Run real-time anomaly detection (non-blocking)
+        const anomalies = await checkRealtimeAnomaly(temperature, humidity)
+
+        return NextResponse.json({
+            success: true,
+            anomalies: anomalies.length > 0 ? anomalies : undefined
+        })
     } catch (err) {
         return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }

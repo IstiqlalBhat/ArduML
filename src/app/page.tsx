@@ -11,10 +11,12 @@ import {
   Wifi,
   WifiOff,
   BarChart3,
+  AlertTriangle,
 } from "lucide-react"
 import { useFirebaseSensor } from "@/hooks/useFirebaseSensor"
 import { LiveSensorCard } from "@/components/dashboard/LiveSensorCard"
 import { ConnectionStatus } from "@/components/dashboard/ActivityPulse"
+import { AnomalyAlert } from "@/components/dashboard/AnomalyAlert"
 import { CandleStickChart } from "@/components/charts/CandleStickChart"
 import { HeatmapController } from "@/components/HeatmapController"
 
@@ -202,6 +204,25 @@ export default function ArduinoDashboard() {
               isConnected={isFirebaseConnected}
             />
           </div>
+        </motion.section>
+
+        {/* Anomaly Detection Section */}
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="mb-6"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
+              ML Anomaly Detection
+            </h2>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+              Last 500 readings
+            </span>
+          </div>
+          <AnomalyAlert />
         </motion.section>
 
         {/* Charts Section */}
