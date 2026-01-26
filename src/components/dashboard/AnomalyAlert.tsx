@@ -144,7 +144,7 @@ export function AnomalyAlert() {
             {/* Pulsing border for critical alerts */}
             {hasHighSeverity && alertsEnabled && (
                 <motion.div
-                    className="absolute inset-0 rounded-2xl border-2 border-red-500/50"
+                    className="absolute inset-0 rounded-2xl border-2 border-red-500/50 pointer-events-none"
                     animate={{ opacity: [0.3, 0.8, 0.3] }}
                     transition={{ duration: 2, repeat: Infinity }}
                 />
@@ -275,7 +275,7 @@ export function AnomalyAlert() {
 
                             {/* Anomaly list */}
                             {activeAnomalies.length > 0 ? (
-                                <div className="max-h-[400px] overflow-y-auto pr-2 -mr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-zinc-800/50 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-zinc-600">
+                                <div style={{ maxHeight: '350px', overflowY: 'scroll', paddingRight: '8px' }}>
                                     <div className="space-y-2">
                                     {activeAnomalies.map((anomaly) => {
                                         const config = severityConfig[anomaly.severity]
