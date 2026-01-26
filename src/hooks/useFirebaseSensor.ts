@@ -33,6 +33,10 @@ export function useFirebaseSensor(): FirebaseSensorState {
 
   useEffect(() => {
     // Reference to the latest_reading node in Firebase (matches Arduino push path)
+    if (!db) {
+      console.warn("Firebase db not initialized")
+      return
+    }
     const sensorRef = ref(db, "latest_reading")
 
     const unsubscribe = onValue(
