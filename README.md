@@ -161,6 +161,23 @@ Switch between intervals to see different perspectives:
 ### Heatmap Visualization
 A GitHub-style contribution graph but for sensor intensity. See patterns in light and motion activity across time.
 
+### Anomaly Detection 🚨
+
+The system uses a **hybrid approach** to detect anomalies in real-time and provide deeper insights:
+
+1.  **Real-Time Detection (Next.js)**:
+    -   Runs on every ingest request.
+    -   Uses **Z-Score Analysis** to detect statistical outliers (e.g., temp > 3 std devs from mean).
+    -   Uses **Rate of Change** checks to catch sudden spikes or drops.
+    -   Includes smart filtering (ignores zeros, minimum std dev) to prevent false positives.
+
+2.  **Machine Learning Analysis (Python)**:
+    -   Runs periodically (manual/cron).
+    -   Uses **Isolation Forest** (scikit-learn) to detect complex **multivariate anomalies** (e.g., unusual temp+humidity combinations).
+    -   Generates detailed reports for deeper analysis.
+
+*See [ANOMALY_DETECTION.md](ANOMALY_DETECTION.md) for full details on algorithms and configuration.*
+
 ## Project Structure
 
 ```
