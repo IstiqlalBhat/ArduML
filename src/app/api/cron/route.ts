@@ -9,7 +9,8 @@ const CRON_SECRET = process.env.CRON_SECRET
 
 /**
  * Cron endpoint for periodic anomaly detection
- * Called by Vercel Cron every 5 minutes
+ * Called by Vercel Cron once daily at midnight UTC (Hobby plan limitation)
+ * Real-time detection still happens on every data ingest via /api/ingest
  */
 export async function GET(request: Request) {
     // Verify cron secret (optional security)
