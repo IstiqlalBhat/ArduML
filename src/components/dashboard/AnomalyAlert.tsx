@@ -240,7 +240,6 @@ export function AnomalyAlert() {
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.3 }}
-                        className="overflow-hidden"
                     >
                         <div className="px-4 pb-4 space-y-4">
                             {/* Statistics */}
@@ -275,7 +274,7 @@ export function AnomalyAlert() {
 
                             {/* Anomaly list */}
                             {activeAnomalies.length > 0 ? (
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-track-zinc-800 scrollbar-thumb-zinc-700">
+                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-zinc-800/50 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-zinc-600">
                                     {activeAnomalies.slice(0, 10).map((anomaly) => {
                                         const config = severityConfig[anomaly.severity]
                                         const method = methodConfig[anomaly.detectionMethod]
