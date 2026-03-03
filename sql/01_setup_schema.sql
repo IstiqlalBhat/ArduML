@@ -86,54 +86,71 @@ returns table (
   close numeric,
   metric_type text
 ) language sql stable as $$
-  with bucketed as (
-    select 
-      to_timestamp(floor(extract(epoch from created_at) / interval_seconds) * interval_seconds) as bucket,
-      temperature,
-      humidity,
-      light,
-      motion,
-      created_at,
-      row_number() over (partition by floor(extract(epoch from created_at) / interval_seconds) order by created_at asc) as rn_asc,
-      row_number() over (partition by floor(extract(epoch from created_at) / interval_seconds) order by created_at desc) as rn_desc
-    from sensor_readings
-    where created_at > (now() - time_range)
-  ),
-  aggregated as (
+  -- Optimized: single GROUP BY for high/low + boundary timestamps,
+  -- then LATERAL joins for open/close (avoids expensive window functions)
+  with boundaries as (
     select
-      bucket,
-      -- Temperature OHLC
-      max(temperature) filter (where rn_asc = 1) as temp_open,
+      to_timestamp(floor(extract(epoch from created_at) / interval_seconds) * interval_seconds) as bucket,
       max(temperature) as temp_high,
       min(temperature) as temp_low,
-      max(temperature) filter (where rn_desc = 1) as temp_close,
-      -- Humidity OHLC
-      max(humidity) filter (where rn_asc = 1) as humid_open,
       max(humidity) as humid_high,
       min(humidity) as humid_low,
-      max(humidity) filter (where rn_desc = 1) as humid_close,
-      -- Light OHLC
-      max(light) filter (where rn_asc = 1) as light_open,
       max(light) as light_high,
       min(light) as light_low,
-      max(light) filter (where rn_desc = 1) as light_close,
-      -- Motion OHLC
-      max(motion) filter (where rn_asc = 1) as motion_open,
       max(motion) as motion_high,
       min(motion) as motion_low,
-      max(motion) filter (where rn_desc = 1) as motion_close
-    from bucketed
-    group by bucket
+      min(created_at) as first_at,
+      max(created_at) as last_at
+    from sensor_readings
+    where created_at > (now() - time_range)
+    group by 1
   )
-  -- Unpivot into separate rows per metric
   select * from (
-    select bucket, temp_open as open, temp_high as high, temp_low as low, temp_close as close, 'temperature'::text as metric_type from aggregated
+    select
+      b.bucket,
+      s_first.temperature as open,
+      b.temp_high as high,
+      b.temp_low as low,
+      s_last.temperature as close,
+      'temperature'::text as metric_type
+    from boundaries b
+    left join lateral (
+      select temperature, humidity, light, motion
+      from sensor_readings
+      where created_at = b.first_at limit 1
+    ) s_first on true
+    left join lateral (
+      select temperature, humidity, light, motion
+      from sensor_readings
+      where created_at = b.last_at limit 1
+    ) s_last on true
     union all
-    select bucket, humid_open, humid_high, humid_low, humid_close, 'humidity'::text from aggregated
+    select b.bucket, s_first.humidity, b.humid_high, b.humid_low, s_last.humidity, 'humidity'::text
+    from boundaries b
+    left join lateral (
+      select humidity from sensor_readings where created_at = b.first_at limit 1
+    ) s_first on true
+    left join lateral (
+      select humidity from sensor_readings where created_at = b.last_at limit 1
+    ) s_last on true
     union all
-    select bucket, light_open::numeric, light_high::numeric, light_low::numeric, light_close::numeric, 'light'::text from aggregated
+    select b.bucket, s_first.light::numeric, b.light_high::numeric, b.light_low::numeric, s_last.light::numeric, 'light'::text
+    from boundaries b
+    left join lateral (
+      select light from sensor_readings where created_at = b.first_at limit 1
+    ) s_first on true
+    left join lateral (
+      select light from sensor_readings where created_at = b.last_at limit 1
+    ) s_last on true
     union all
-    select bucket, motion_open::numeric, motion_high::numeric, motion_low::numeric, motion_close::numeric, 'motion'::text from aggregated
+    select b.bucket, s_first.motion::numeric, b.motion_high::numeric, b.motion_low::numeric, s_last.motion::numeric, 'motion'::text
+    from boundaries b
+    left join lateral (
+      select motion from sensor_readings where created_at = b.first_at limit 1
+    ) s_first on true
+    left join lateral (
+      select motion from sensor_readings where created_at = b.last_at limit 1
+    ) s_last on true
   ) as unpivoted
   order by bucket desc, metric_type;
 $$;

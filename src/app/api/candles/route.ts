@@ -23,10 +23,7 @@ export async function GET(request: Request) {
 
     if (error) {
         console.error('Error fetching candles:', error)
-        return NextResponse.json({
-            temperature: [], humidity: [], light: [], motion: [],
-            debug: { error: error.message, code: error.code, details: error.details, hint: error.hint }
-        })
+        return NextResponse.json({ temperature: [], humidity: [], light: [], motion: [] })
     }
 
     // Helper to map DB rows to Apex format
@@ -41,7 +38,6 @@ export async function GET(request: Request) {
         temperature: mapCandles('temperature'),
         humidity: mapCandles('humidity'),
         light: mapCandles('light'),
-        motion: mapCandles('motion'),
-        debug: { rawCount: data?.length, sample: data?.slice(0, 3), range, intervalSeconds, timeRange }
+        motion: mapCandles('motion')
     })
 }
