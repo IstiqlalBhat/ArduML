@@ -41,6 +41,7 @@ export async function GET(request: Request) {
         temperature: mapCandles('temperature'),
         humidity: mapCandles('humidity'),
         light: mapCandles('light'),
-        motion: mapCandles('motion')
+        motion: mapCandles('motion'),
+        debug: { rawCount: data?.length, sample: data?.slice(0, 3), range, intervalSeconds, timeRange }
     })
 }
