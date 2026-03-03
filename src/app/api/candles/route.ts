@@ -23,7 +23,10 @@ export async function GET(request: Request) {
 
     if (error) {
         console.error('Error fetching candles:', error)
-        return NextResponse.json({ temperature: [], humidity: [], light: [], motion: [] })
+        return NextResponse.json({
+            temperature: [], humidity: [], light: [], motion: [],
+            debug: { error: error.message, code: error.code, details: error.details, hint: error.hint }
+        })
     }
 
     // Helper to map DB rows to Apex format
